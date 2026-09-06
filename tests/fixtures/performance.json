@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "tuning": [64, 59, 55, 50, 45, 40],
+  "notes": [
+    {"pitch": 64, "startSeconds": 0, "durationSeconds": 0.5, "string": 2, "fret": 5, "confidence": 0.95},
+    {"pitch": 67, "startSeconds": 0.5, "durationSeconds": 0.5}
+  ]
+}

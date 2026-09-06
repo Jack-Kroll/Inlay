@@ -1,0 +1,20 @@
+[project]
+name = "inlay"
+version = "0.1.0"
+description = "Guitar fretboard detection and future music transcription"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy==2.3.5",
+    "opencv-python==4.13.0.92",
+    "ultralytics==8.4.54",
+    "torch==2.12.0",
+    "torchvision==0.27.0",
+    "pyyaml==6.0.3",
+]
+
+[project.optional-dependencies]
+coreml = ["coremltools==9.0; sys_platform == 'darwin'"]
+
+[tool.uv]
+package = false

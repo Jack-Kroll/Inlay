@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inlay performance draft v1",
+  "description": "Shared boundary for timed transcription events. Seconds are media-relative; not a complete notation document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "tuning", "notes"],
+  "properties": {
+    "version": {"const": 1},
+    "tuning": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0, "maximum": 127}, "description": "Open-string MIDI pitches, string 1 first (high E in standard tuning)."},
+    "notes": {"type": "array", "items": {"$ref": "#/$defs/note"}}
+  },
+  "$defs": {
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pitch", "startSeconds", "durationSeconds"],
+      "dependentRequired": {"string": ["fret"], "fret": ["string"]},
+      "properties": {
+        "pitch": {"type": "integer", "minimum": 0, "maximum": 127},
+        "startSeconds": {"type": "number", "minimum": 0},
+        "durationSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "string": {"type": "integer", "minimum": 1},
+        "fret": {"type": "integer", "minimum": 0},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
+  }
+}
