@@ -98,8 +98,17 @@ numbers can persist through verified motion for up to `--max-gap` seconds
 (default 0.5); longer uncertainty clears numbers. Without motion support the
 tracker drops an occluded overlay immediately instead of freezing it in place.
 
-The preview shows measured wire lines and optional numbers. It does not synthesize
-strings or display guessed notes. Dense neck completion and inferred full wire
+Blue wire lines are current detections. Orange lines labeled with `~` are estimates:
+the accepted nut-anchored fit fills gaps of at most four missing frets between
+reliable anchors (including the nut). It requires at least four consistent numbered
+wires, accounts for perspective, and leaves uncertain or wider gaps blank. It never
+extends the grid beyond its anchors. Motion-held lines are also orange and expire
+with the existing tracking timeout. Estimates cannot reinforce the numbering fit.
+
+JSONL keeps these lines in `estimated_frets`, separate from measured `frets`, with
+`number`, `endpoints`, and `method` (`spacing` or `tracked`). Measured fret entries
+also include a `source` indicating whether they are detected or motion-tracked.
+The preview does not synthesize strings or display guessed notes. Dense neck completion and inferred full wire
 extents remain predictions; a hand or off-screen area cannot be guaranteed correct.
 
 ## Combining locally downloaded sources
@@ -163,3 +172,32 @@ uv run python -m processing.training.train_obb \
 **YOLO OBB-only** tools. Do not pass dense checkpoints to them. Dense Core ML
 conversion and device parity/latency testing are future deployment work; select
 and validate a trained dense checkpoint before building the mobile runtime.
+
+
+### Preview speed and front-camera mirroring
+
+The camera preview is mirrored by default, including heatmaps and geometry.
+Numbers and status text stay readable. Press **m** to toggle mirroring or start
+with `--no-mirror`. JSONL and internal tracking coordinates always remain in the
+original camera orientation.
+
+Live cameras are read continuously and only the newest frame is processed, so
+slow inference does not build up an old-frame queue. Video files still process
+every frame in order. The overlay now reports measured preview FPS; JSONL also
+records inference, decoding and tracking time separately.
+
+Inference folds the encoder's frozen normalization layers into convolutions and
+batches line scoring. These optimizations keep the checkpoint's trained image
+size and do not change training or overwrite weights. Heatmaps are displayed at
+up to 480 pixels wide and refresh at 5 FPS by default; use `--heatmap-fps` to
+adjust their refresh rate independently.
+
+A short MPS benchmark on saved images (1280 × 720 frames, 768-pixel inference)
+reduced median stage times from approximately 52.3/19.3/6.3 ms to 49.8/11.9/6.2 ms
+for inference/decoding/tracking. The sum fell about 13%; this is not a measured
+live-camera FPS guarantee, and hardware load affects timing.
+
+For additional speed, try `--imgsz 640` (or 512). Smaller inference sizes may
+miss fine/distant frets. Omit the option to keep the original trained resolution.
+
+

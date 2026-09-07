@@ -74,9 +74,11 @@ def load_checkpoint(path, device='cpu'):
 
 
 class DenseDetector:
-    def __init__(self, path, device='cpu', size=None):
+    def __init__(self, path, device='cpu', size=None, optimize=True):
         self.device = device
         self.model, checkpoint = load_checkpoint(path, device)
+        if optimize:
+            fuse_encoder(self.model)
         self.size = size or checkpoint['config']['imgsz']
         if self.size < 64 or self.size % 32:
             raise ValueError('Image size must be >=64 and divisible by 32')
@@ -90,3 +92,23 @@ class DenseDetector:
         maps = logits.sigmoid()[0].cpu().numpy().transpose(1, 2, 0)
         maps = maps[top:top+nh, left:left+nw]
         return cv2.resize(maps, (image.shape[1], image.shape[0])).astype(np.float32)
+
+
+def fuse_encoder(model):
+    """Fold frozen encoder BatchNorm into convolutions for inference only."""
+    if model.training:
+        raise ValueError('Convolution fusion requires evaluation mode')
+    from torch.nn.utils.fusion import fuse_conv_bn_eval
+    for module in model.modules():
+        for conv_name, bn_name in (('conv1', 'bn1'), ('conv2', 'bn2')):
+            conv, bn = getattr(module, conv_name, None), getattr(module, bn_name, None)
+            if isinstance(conv, nn.Conv2d) and isinstance(bn, nn.BatchNorm2d):
+                setattr(module, conv_name, fuse_conv_bn_eval(conv, bn))
+                setattr(module, bn_name, nn.Identity())
+        if isinstance(module, nn.Sequential):
+            for index in range(len(module)-1):
+                if isinstance(module[index], nn.Conv2d) and isinstance(module[index+1], nn.BatchNorm2d):
+                    module[index] = fuse_conv_bn_eval(module[index], module[index+1])
+                    module[index+1] = nn.Identity()
+    return model
+

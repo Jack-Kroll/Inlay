@@ -6,6 +6,13 @@ import numpy as np
 
 
 @dataclass
+class EstimatedFret:
+    line: np.ndarray
+    number: int
+    method: str = 'spacing'
+
+
+@dataclass
 class Observation:
     neck: np.ndarray
     frets: list[np.ndarray]
@@ -13,6 +20,7 @@ class Observation:
     confidence: float
     numbers: list[int | None] = field(default_factory=list)
     numbering: str = 'unknown'
+    estimates: list[EstimatedFret] = field(default_factory=list)
 
 
 def decode_maps(maps, threshold=.5):
@@ -53,22 +61,34 @@ def decode_maps(maps, threshold=.5):
             found=cv2.HoughLines(evidence,1,np.pi/720,max(5,int(width*.22)),min_theta=lo,max_theta=hi)
             if found is not None:raw.extend(found[:250,0])
         candidates=[]
-        for rho,theta in raw:
-            normal=np.array([np.cos(theta),np.sin(theta)])
-            direction=np.array([-normal[1],normal[0]])
-            center=neck.mean(0).astype(float)
-            center+=(rho-center@normal)*normal
-            samples=center+np.linspace(-2*width,2*width,max(20,int(8*width)))[:,None]*direction
-            xy=np.rint(samples).astype(int)
-            good=(xy[:,0]>=0)&(xy[:,0]<mask.shape[1])&(xy[:,1]>=0)&(xy[:,1]<mask.shape[0])
-            idx=np.where(good)[0]; idx=idx[mask[xy[idx,1],xy[idx,0]]>0]
-            if len(idx)<max(4,width*.7):continue
-            support=maps[xy[idx,1],xy[idx,0],channel]
-            coverage=float((support>threshold).mean())
-            if coverage<.45:continue
-            segment=np.array([samples[idx[0]],samples[idx[-1]]],np.float32)
-            confidence=float(support.mean())
-            candidates.append((confidence,float(segment.mean(axis=0)@axis),segment))
+        if not raw:
+            return []
+        # Score all Hough proposals together; avoids hundreds of Python loops
+        # and repeated tiny allocations on every frame.
+        proposals=np.asarray(raw)
+        normals=np.stack((np.cos(proposals[:,1]),np.sin(proposals[:,1])),axis=1)
+        directions=np.stack((-normals[:,1],normals[:,0]),axis=1)
+        center=neck.mean(0).astype(float)
+        centers=center+(proposals[:,0]-normals@center)[:,None]*normals
+        offsets=np.linspace(-2*width,2*width,max(20,int(8*width)))
+        samples=centers[:,None,:]+offsets[None,:,None]*directions[:,None,:]
+        xy=np.rint(samples).astype(int)
+        good=(xy[...,0]>=0)&(xy[...,0]<mask.shape[1])&(xy[...,1]>=0)&(xy[...,1]<mask.shape[0])
+        x=np.clip(xy[...,0],0,mask.shape[1]-1)
+        y=np.clip(xy[...,1],0,mask.shape[0]-1)
+        inside=good&(mask[y,x]>0)
+        counts=inside.sum(axis=1)
+        support=maps[y,x,channel]
+        coverage=((support>threshold)&inside).sum(axis=1)/np.maximum(counts,1)
+        eligible=np.flatnonzero((counts>=max(4,width*.7))&(coverage>=.45))
+        if len(eligible):
+            first=inside[eligible].argmax(axis=1)
+            last=inside.shape[1]-1-inside[eligible,::-1].argmax(axis=1)
+            segments=np.stack((samples[eligible,first],samples[eligible,last]),axis=1).astype(np.float32)
+            confidence=(support*inside).sum(axis=1)/np.maximum(counts,1)
+            positions=segments.mean(axis=1)@axis
+            candidates=[(float(confidence[k]),float(pos),segment)
+                        for k,pos,segment in zip(eligible,positions,segments)]
         selected=[]
         for candidate in sorted(candidates,key=lambda item:-item[0]):
             if all(abs(candidate[1]-other[1])>max(2,width*.035) for other in selected):
@@ -112,9 +132,11 @@ def lattice_fit(distances,max_fret=24):
         integer=np.rint(np.nan_to_num(floating,nan=-100,posinf=-100,neginf=-100)).astype(int)
         error=np.abs(floating-integer)
         inliers=(integer>=1)&(integer<=max_fret)&(error<.18)
-        for k in range(len(a)):
+        # Batch-reject weak candidates before the per-assignment checks.
+        counts=inliers.sum(axis=1)
+        eligible=np.flatnonzero(counts>=max(4,int(np.ceil(.65*len(s)))))
+        for k in eligible:
             valid=inliers[k]
-            if valid.sum()<max(4,int(np.ceil(.65*len(s)))): continue
             if len(set(integer[k,valid]))!=int(valid.sum()): continue
             assignment=tuple(int(n) if ok else 0 for n,ok in zip(integer[k],valid))
             score=float(valid.sum()-.5*np.mean(error[k,valid]))
@@ -129,6 +151,8 @@ def lattice_fit(distances,max_fret=24):
 
 def assign_numbers(observation):
     observation.numbers=[None]*len(observation.frets)
+    observation.numbering='unknown'
+    observation.estimates=[]
     if observation.nut is None or len(observation.frets)<4: return
     centers=np.array([f.mean(axis=0) for f in observation.frets])
     origin=observation.nut.mean(axis=0)
@@ -141,6 +165,95 @@ def assign_numbers(observation):
     if fit is None: return
     for i,n in zip(order,fit['numbers']): observation.numbers[i]=n
     observation.numbering='nut-anchored fit'
+    estimate_missing_frets(observation, fit, origin, axis)
+
+
+
+def estimate_missing_frets(observation, fit, origin, axis, max_missing=4):
+    """Interpolate bounded gaps using an accepted nut-anchored spacing fit.
+
+    Estimated lines are kept outside frets/numbers so they can never become
+    measurements or reinforce the next frame's numbering fit.
+    """
+    observation.estimates = []
+    if observation.nut is None or observation.numbering != 'nut-anchored fit':
+        return
+    measured = [(n, line) for n, line in zip(observation.numbers, observation.frets)
+                if n is not None]
+    if len(measured) < 4 or len({n for n, _ in measured}) != len(measured):
+        return
+    anchors = [(0, observation.nut)] + sorted(measured, key=lambda item: item[0])
+
+    def position(n):
+        ratio = 1-2.**(-n/12)
+        denominator = 1+fit['c']*ratio
+        return fit['a']*ratio/denominator if denominator > .05 else float('nan')
+
+    for (low, left), (high, right) in zip(anchors, anchors[1:]):
+        if not 1 <= high-low-1 <= max_missing:
+            continue
+        sl, sh = position(low), position(high)
+        if not np.isfinite([sl, sh]).all() or sh-sl < 2*(high-low):
+            continue
+        # Endpoints have no string identity; align their order before interpolation.
+        left, right = np.asarray(left, float), np.asarray(right, float)
+        if np.linalg.norm(left-right[::-1]) < np.linalg.norm(left-right):
+            right = right[::-1]
+        if (right.mean(0)-left.mean(0))@axis <= 0:
+            continue
+        spacing = min(position(low+1)-sl, sh-position(high-1))
+        residual = max(abs((left.mean(0)-origin)@axis-sl),
+                       abs((right.mean(0)-origin)@axis-sh))
+        if spacing <= 0 or residual > .2*spacing:
+            continue
+        for number in range(low+1, high):
+            weight = (position(number)-sl)/(sh-sl)
+            if not 0 < weight < 1:
+                continue
+            line = ((1-weight)*left+weight*right).astype(np.float32)
+            if not np.isfinite(line).all() or np.linalg.norm(line[1]-line[0]) < 4:
+                continue
+            samples = line[0]+np.linspace(0, 1, 5)[:, None]*(line[1]-line[0])
+            if any(cv2.pointPolygonTest(observation.neck.astype(np.float32),
+                                       (float(p[0]), float(p[1])), True) < -2 for p in samples):
+                continue
+            # A real but unnumbered detection may already occupy this slot.
+            center = line.mean(0)
+            if any(np.linalg.norm(center-f.mean(0)) < max(2, .25*spacing)
+                   for f in observation.frets):
+                continue
+            observation.estimates.append(EstimatedFret(line, number))
+
+
+def retain_missing_frets(detected, warped, max_missing=4):
+    """Bridge briefly missing measurements using already-validated camera motion."""
+    numbered = [(n, line) for n, line in zip(detected.numbers, detected.frets)
+                if n is not None]
+    if len(numbered) < 2:
+        return
+    low = min(n for n, _ in numbered)
+    if warped.nut is not None:
+        low = 0
+    present = {n for n, _ in numbered}
+    boundaries = sorted(present | {low})
+    permitted = {n for left, right in zip(boundaries, boundaries[1:])
+                 if right-left-1 <= max_missing for n in range(left+1, right)}
+    candidates = [EstimatedFret(line, n, 'tracked') for n, line in
+                  zip(warped.numbers, warped.frets) if n is not None]
+    candidates += [EstimatedFret(e.line, e.number, 'tracked') for e in warped.estimates]
+    width = min(cv2.minAreaRect(detected.neck)[1])
+    for estimate in candidates:
+        if estimate.number not in permitted or estimate.number in present:
+            continue
+        if any(np.linalg.norm(estimate.line.mean(0)-f.mean(0)) < max(2, width*.15)
+               for f in detected.frets):
+            continue
+        if any(cv2.pointPolygonTest(detected.neck.astype(np.float32),
+                                   (float(p[0]), float(p[1])), True) < -2
+               for p in estimate.line):
+            continue
+        detected.estimates.append(estimate)
+        present.add(estimate.number)
 
 
 def transform_observation(observation,matrix):
@@ -148,7 +261,8 @@ def transform_observation(observation,matrix):
         return cv2.perspectiveTransform(np.asarray(points,np.float32).reshape(-1,1,2),matrix).reshape(-1,2)
     return Observation(transform(observation.neck),[transform(f) for f in observation.frets],
                        transform(observation.nut) if observation.nut is not None else None,
-                       observation.confidence,list(observation.numbers),observation.numbering)
+                       observation.confidence,list(observation.numbers),observation.numbering,
+                       [EstimatedFret(transform(e.line), e.number, e.method) for e in observation.estimates])
 
 
 class FretboardTracker:
@@ -221,15 +335,22 @@ class FretboardTracker:
                         j=int(np.argmin(distances))
                         if distances[j]<max(2,width*.15):
                             detected.numbers[i]=warped.numbers[j];numbered_used.add(j)
-                    if any(n is not None for n in detected.numbers):detected.numbering='short-term tracked'
+                    if any(n is not None for n in detected.numbers):
+                        detected.numbering='short-term tracked'
+                        retain_missing_frets(detected, warped)
             self.observation=detected
             if detected.numbering=='nut-anchored fit':self.last_detection=timestamp
             self.state='detected'
             self.last_board_detection=timestamp
         elif warped is not None and self.last_board_detection is not None and timestamp-self.last_board_detection<=self.max_gap:
             self.observation=warped;self.state='tracked'
+            for estimate in self.observation.estimates:
+                estimate.method='tracked'
             self.observation.confidence*=np.exp(-(timestamp-self.last_time)/self.max_gap)
         else:
             self.observation=None;self.state='lost';self.last_detection=None
         self.previous_gray=gray;self.last_time=timestamp
         return self.observation
+
+
+
