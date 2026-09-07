@@ -363,6 +363,9 @@ def main():
     from processing.training.train import select_device
     device = select_device(args.device)
 
+    # Name the input up front: the output files are named after the video, so a
+    # stale --video with a fresh --output is otherwise silently confusing.
+    print(f'Transcribing {args.video} -> {args.output}/{args.video.stem}.*', flush=True)
     print('Detecting pitch...', flush=True)
     with tempfile.TemporaryDirectory() as workdir:
         notes, audio_path = notes_from_media(
