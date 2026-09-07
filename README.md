@@ -6,10 +6,10 @@ the planned mobile client uses React Native and TypeScript.
 
 **Available:** trainable dense fretboard model, dataset auditing/merging, partial
 label supervision, occlusion augmentation, motion-supported tracking, video/JSONL
-diagnostics, and held-out pixel evaluation. The previous YOLO OBB detector remains
-available as a baseline. Audio, hand tracking, played-note inference and the mobile
-app are still to build. The rewrite is training-ready; improved camera accuracy
-has not yet been demonstrated.
+diagnostics, held-out pixel evaluation, and offline tab transcription combining
+pitch detection with fretting-hand tracking. The previous YOLO OBB detector
+remains available as a baseline. Live transcription and the mobile app are still
+to build. No transcription or camera accuracy has been measured.
 
 ## Get started
 
@@ -60,6 +60,27 @@ String positions and played notes are not inferred by this model.
 enable the terminal/app in **System Settings → Privacy & Security → Camera**.
 Restart that app after changing permissions and close other camera applications.
 
+## Transcribe a recording to tab
+
+```sh
+uv sync --locked --extra transcribe
+uv run python -m processing.music.transcribe \
+  --model runs/dense/fretboard-v1/best.pt \
+  --video clips/take-1.mp4 --output runs/transcribe/take-1 \
+  --device mps --progress
+```
+
+This writes an annotated video and a JSONL note list. Sounding pitch comes from
+Spotify Basic Pitch, fret geometry from the dense detector, and fingertip
+positions from MediaPipe; the three are combined into `(string, fret)` per note.
+Every note reports how well the hand actually supported it, and unexplained
+fingers are listed rather than hidden. Strings are interpolated across the board,
+not detected, and standard tuning is assumed unless `--tuning` says otherwise.
+It runs on a recording because Basic Pitch reads a whole soundtrack.
+
+See [tab transcription](docs/transcription.md) for the geometry, the scoring and
+the list of things it cannot do.
+
 ## Compare the original detector
 
 Existing OBB checkpoints use the legacy entry point:
@@ -85,6 +106,10 @@ attribution files when sharing them. There is no shared artifact download yet.
 | `processing/training/train.py` | Training and checkpoint resume |
 | `processing/training/evaluate.py` | Clean and synthetic-occlusion pixel evaluation |
 | `processing/vision/legacy_preview.py` | Original OBB overlay for comparison |
+| `processing/music/fretboard.py` | Image to (fret, string) board coordinates |
+| `processing/music/fusion.py` | Pitch plus hand evidence to tab positions |
+| `processing/music/transcribe.py` | Offline transcription CLI and overlay |
+| `processing/music/hands.py` | MediaPipe fingertips; `pitch.py` Basic Pitch |
 | `packages/music` | Versioned timed-note contract for the future app |
 | `tests` | Geometry, data, model, tracker and compatibility checks |
 
@@ -95,4 +120,7 @@ Run tests before sharing changes. Commit `pyproject.toml`, `uv.lock`, and
 and model binaries out of source control.
 
 See [architecture and limitations](docs/architecture.md). Core ML tools are optional
-(`uv run --extra coreml`) and currently support the legacy OBB model only.
+(`uv run --extra coreml`) and currently support the legacy OBB model only. The
+YOLO baseline now needs `--extra legacy`, which keeps `ultralytics` and its
+`opencv-python` dependency out of the default install: MediaPipe requires
+`opencv-contrib-python`, and two distributions cannot share the `cv2` namespace.

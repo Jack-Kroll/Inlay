@@ -29,6 +29,15 @@ played notes. Audio and vision will eventually share the media timestamp origin.
    Video time comes from frame index/FPS, not inference wall time; camera time
    comes from a monotonic clock. Timestamp discontinuities reset the tracker.
 
+7. `processing/music` turns observations into tab offline. A homography maps the
+   image to board coordinates `(1-2**(-n/12), across)`, which is projective where
+   fret number is not. Numbered wires are clipped to one fitted edge per side of
+   the board so their endpoints become comparable. Strings are interpolated
+   across that board; the model has no string head. Basic Pitch supplies
+   sounding pitch, MediaPipe supplies fingertips, and one placement is chosen per
+   chord under the rule that two simultaneous notes cannot share a string.
+   See `transcription.md`.
+
 The original OBB implementation is retained in `legacy_preview.py`, `geometry.py`
 and `train_obb.py` to enable controlled comparisons. It is not the default runtime.
 
@@ -54,6 +63,10 @@ and `train_obb.py` to enable controlled comparisons. It is not the default runti
   from the current unnumbered annotations.
 - Dense Core ML export and mobile device parity/latency testing remain to do
   after selecting a trained checkpoint. No runnable React Native app exists yet.
+- Transcription accuracy is unmeasured. A fingertip near a cell is not proof the
+  string is pressed, and a missing fingertip is not proof it is open. Barre
+  chords, bends, slides, capos and alternate tunings are not modelled, and the
+  string order is inferred from which reading explains more notes.
 
 The music schema in `packages/music/performance.schema.json` remains an initial
 performance contract. Preserve musical spelling, beat/tempo maps and voices when
