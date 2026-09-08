@@ -63,10 +63,12 @@ and `train_obb.py` to enable controlled comparisons. It is not the default runti
   from the current unnumbered annotations.
 - Dense Core ML export and mobile device parity/latency testing remain to do
   after selecting a trained checkpoint. No runnable React Native app exists yet.
-- Transcription accuracy is unmeasured. A fingertip near a cell is not proof the
+- End-to-end transcription accuracy is unmeasured; audio pitch and blind string
+  assignment have separate GuitarSet evaluations. A fingertip near a cell is not proof the
   string is pressed, and a missing fingertip is not proof it is open. Barre
-  chords, bends, slides, capos and alternate tunings are not modelled, and the
-  string order is inferred from which reading explains more notes.
+  chords, bends, slides and capos are not modelled; alternate tunings must be
+  supplied explicitly. The string order is inferred from which reading explains
+  more notes.
 
 The music schema in `packages/music/performance.schema.json` remains an initial
 performance contract. Preserve musical spelling, beat/tempo maps and voices when

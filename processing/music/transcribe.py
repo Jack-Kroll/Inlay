@@ -10,8 +10,8 @@ interpolation. Read the flags.
 """
 from __future__ import annotations
 import argparse
-from bisect import bisect_left
-from dataclasses import dataclass, field
+from bisect import bisect_left, bisect_right
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 import subprocess
@@ -24,9 +24,9 @@ import numpy as np
 from processing.vision.preview import draw_text, draw_observation, open_capture
 from processing.vision.tracker import FretboardTracker, decode_maps, transform_observation
 from .fretboard import board_transform
-from .fusion import (SUPPORT_THRESHOLD, TabNote, assign_positions, finger_contacts,
+from .fusion import (assign_positions, finger_contacts, hand_position, plan_positions,
                      unexplained_contacts)
-from .hands import CONNECTIONS, FRETTING_FINGERS, HandTracker, fretting_hand
+from .hands import CONNECTIONS, HandTracker, fretting_hand
 from .pitch import notes_from_media
 from .tuning import STANDARD_TUNING, note_name, validate_tuning
 
@@ -65,25 +65,27 @@ def nearest_record(records, timestamps, timestamp, tolerance=.12):
     """Frame closest to a note onset, preferring one that actually saw the board."""
     if not records:
         return None
-    position = bisect_left(timestamps, timestamp)
-    order = sorted(range(max(position-4, 0), min(position+5, len(records))),
+    low = bisect_left(timestamps, timestamp-tolerance)
+    high = bisect_right(timestamps, timestamp+tolerance)
+    order = sorted(range(low, high),
                    key=lambda i: abs(timestamps[i]-timestamp))
     fallback = records[order[0]] if order else None
     for index in order:
-        if abs(timestamps[index]-timestamp) > tolerance:
-            continue
         if records[index].observation is not None:
             return records[index]
     return fallback
 
 
-def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=6):
+def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=None):
     """Assign every note a (string, fret), one decision per chord."""
     timestamps = [r.timestamp for r in records]
-    assignments, per_group = {}, []
-    for group in group_notes(notes):
+    strings = len(tuning) if strings is None else strings
+    groups = group_notes(notes)
+    # Pass one: what the video saw at each onset.
+    evidence = []
+    for group in groups:
         record = nearest_record(records, timestamps, group[0].start)
-        transform = contacts = None
+        transform = None
         if record is not None and record.observation is not None:
             transform = board_transform(record.observation, strings=strings,
                                         inset=inset, flipped=flipped)
@@ -91,10 +93,25 @@ def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=6
         if record is not None and record.hand_points is not None:
             hand = _hand_from(record)
         contacts = finger_contacts(hand, transform, max_fret=max_fret) if transform else []
+        evidence.append((record, transform, hand, contacts))
+    # Pass two: plan the neck position across the whole clip before placing any
+    # note, so a chord with no visible hand is answered by the chords around it
+    # rather than by a running average of earlier guesses.
+    planned = plan_positions(groups, [hand_position(contacts)
+                                      for _, _, _, contacts in evidence],
+                             tuning, max_fret)
+    assignments, per_group = {}, []
+    sounding = []
+    for group, (record, transform, hand, contacts), position in zip(
+            groups, evidence, planned):
+        sounding = [note for note in sounding if note.end > group[0].start]
         results = assign_positions(group, contacts, tuning, max_fret,
-                                   board=transform is not None, hand=hand is not None)
-        for note, result in zip(group, results):
-            assignments[(round(note.start, 6), note.pitch)] = result
+                                   board=transform is not None, hand=hand is not None,
+                                   occupied=sounding, position=position)
+        for result in results:
+            # Onset and pitch are not unique IDs (nor are rounded timestamps).
+            assignments[len(assignments)] = result
+        sounding.extend(note for note in results if note.string is not None)
         per_group.append((record, contacts, results))
     return assignments, per_group
 
@@ -190,15 +207,19 @@ def draw_hand(frame, points, contacts=None):
         draw_text(frame, contact.label, contact.point+np.array([8, -8]), .42, colour)
 
 
-def draw_tab_strip(frame, active, history, timestamp, window=4., strings=6):
+def draw_tab_strip(frame, active, history, timestamp, window=4., strings=6,
+                   tuning=None):
+    if tuning is not None:
+        strings = len(tuning)
     height, width = frame.shape[:2]
     top, bottom = height-115, height-25
     cv2.rectangle(frame, (0, top-18), (width, height), (18, 18, 22), -1)
-    spacing = (bottom-top)/(strings-1)
+    spacing = (bottom-top)/max(strings-1, 1)
     for string in range(strings):
         y = int(top+string*spacing)
         cv2.line(frame, (46, y), (width-10, y), (70, 70, 80), 1)
-        draw_text(frame, 'eBGDAE'[string], (28, y+4), .42, (140, 140, 150))
+        label = note_name(tuning[string]) if tuning is not None else str(string+1)
+        draw_text(frame, label, (10, y+4), .42, (140, 140, 150))
     draw_text(frame, f'last {window:.0f}s', (10, top-24), .4, (140, 140, 150))
     for note in history:
         if not (timestamp-window <= note.start <= timestamp) or note.string is None:
@@ -215,7 +236,6 @@ def render(video, records, assignments, notes, args, fps, transform_kwargs, outp
     """Pass two: draw overlays onto the original frames."""
     capture = open_capture(str(video))
     writer = None
-    timestamps = [r.timestamp for r in records]
     ordered = sorted(assignments.values(), key=lambda n: n.start)
     try:
         for record in records:
@@ -247,10 +267,10 @@ def render(video, records, assignments, notes, args, fps, transform_kwargs, outp
                 draw_hand(display, shown_points,
                           _mirror_contacts(contacts, frame.shape[1], args.mirror) if is_fretting else None)
             active = [n for n in ordered if n.start <= record.timestamp < n.end]
-            draw_tab_strip(display, active, ordered, record.timestamp)
+            draw_tab_strip(display, active, ordered, record.timestamp, tuning=args.tuning)
             _draw_hud(display, record, transform, active, contacts, args)
             if writer is None:
-                writer = cv2.VideoWriter(str(output), cv2.VideoWriter_fourcc(*'mp4v'),
+                writer = cv2.VideoWriter(str(output), cv2.VideoWriter.fourcc(*'mp4v'),
                                          fps, (display.shape[1], display.shape[0]))
                 if not writer.isOpened():
                     raise RuntimeError(f'Cannot open video writer for {output}')
@@ -317,7 +337,8 @@ def mux_audio(video, audio, destination):
         return None
     result = subprocess.run(
         ['ffmpeg', '-nostdin', '-loglevel', 'error', '-y', '-i', str(video), '-i', str(audio),
-         '-c:v', 'copy', '-c:a', 'aac', '-shortest', str(destination)],
+         '-map', '0:v:0', '-map', '1:a:0',
+         '-c:v', 'copy', '-c:a', 'aac', '-af', 'apad', '-shortest', str(destination)],
         capture_output=True, text=True)
     return destination if result.returncode == 0 and destination.is_file() else None
 
@@ -343,9 +364,10 @@ def main():
                         help='"standard" or comma-separated MIDI pitches, highest string first')
     parser.add_argument('--hands', type=int, default=2)
     parser.add_argument('--hand-model', type=Path)
-    parser.add_argument('--onset-threshold', type=float, default=.5)
-    parser.add_argument('--frame-threshold', type=float, default=.3)
-    parser.add_argument('--min-note-ms', type=float, default=70.)
+    # Tuned on GuitarSet; see docs/pitch-tuning.md.
+    parser.add_argument('--onset-threshold', type=float, default=.6)
+    parser.add_argument('--frame-threshold', type=float, default=.45)
+    parser.add_argument('--min-note-ms', type=float, default=60.)
     parser.add_argument('--mirror', action='store_true', help='Mirror the rendered video')
     parser.add_argument('--no-strings', dest='show_strings', action='store_false',
                         help='Hide the interpolated string lines')
@@ -357,8 +379,17 @@ def main():
         parser.error('Invalid threshold, inset or max-fret')
     if args.hands < 1 or (args.max_frames is not None and args.max_frames < 1):
         parser.error('Invalid hands or max-frames')
-    tuning = (STANDARD_TUNING if args.tuning == 'standard'
-              else validate_tuning([int(v) for v in args.tuning.split(',')]))
+    if (not np.isfinite(args.max_gap) or args.max_gap <= 0
+            or not 0 <= args.onset_threshold <= 1 or not 0 <= args.frame_threshold <= 1
+            or not np.isfinite(args.min_note_ms) or args.min_note_ms <= 0
+            or (args.imgsz is not None and (args.imgsz < 64 or args.imgsz % 32))):
+        parser.error('Invalid max-gap, pitch thresholds, min-note-ms or imgsz')
+    try:
+        tuning = (STANDARD_TUNING if args.tuning == 'standard'
+                  else validate_tuning([int(v) for v in args.tuning.split(',')]))
+    except ValueError as error:
+        parser.error(str(error))
+    args.tuning = tuning
     args.output.mkdir(parents=True, exist_ok=True)
     from processing.training.train import select_device
     device = select_device(args.device)
@@ -368,40 +399,69 @@ def main():
     print(f'Transcribing {args.video} -> {args.output}/{args.video.stem}.*', flush=True)
     print('Detecting pitch...', flush=True)
     with tempfile.TemporaryDirectory() as workdir:
-        notes, audio_path = notes_from_media(
+        # `activations` is the raw posteriorgram behind these notes. Nothing
+        # consumes it yet: whether a visual-candidate rescue stage is worth
+        # building is what processing/tools/rescue_bound.py measures.
+        notes, activations, audio_path = notes_from_media(
             args.video, args.audio, workdir, onset_threshold=args.onset_threshold,
-            frame_threshold=args.frame_threshold, minimum_note_length=args.min_note_ms)
+            frame_threshold=args.frame_threshold, minimum_note_length=args.min_note_ms,
+            minimum_frequency=440 * 2 ** ((min(tuning)-69)/12),
+            # Basic Pitch rounds the cutoff to a MIDI bin and excludes that bin.
+            # Use the next semitone so odd/even top pitches are both retained.
+            maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12))
         print(f'  {len(notes)} note events', flush=True)
         print('Detecting fretboard and hands...', flush=True)
         records, fps = analyse(args.video, args.model, device, notes, tuning, args)
         print(f'  {len(records)} frames at {fps:.2f} fps', flush=True)
+        if not records:
+            raise RuntimeError(f'No video frames decoded from {args.video}')
+        duration = records[-1].timestamp + 1/fps
+        notes = [replace(note, end=min(note.end, duration)) for note in notes
+                 if 0 <= note.start < duration and note.end > note.start]
 
-        common = dict(strings=len(tuning), inset=args.inset, max_fret=args.max_fret)
         options = ([False, True] if args.string_order == 'auto'
                    else [args.string_order == 'flipped'])
         best, args.flipped = None, options[0]
+        order_scores = {}
         for flipped in options:
             assignments, per_group = transcribe_notes(
                 records, notes, tuning, args.max_fret, args.inset, flipped, len(tuning))
             score = fingered_rate(per_group)
+            order_scores['flipped' if flipped else 'normal'] = score
             print(f'  string order {"flipped" if flipped else "normal"}: '
                   f'{score:.0%} of fretted notes have fingertip support', flush=True)
             if best is None or score > best[0]:
                 best, args.flipped = (score, assignments, per_group), flipped
+        assert best is not None  # Every string-order mode evaluates at least one option.
         _, assignments, per_group = best
         transform_kwargs = dict(strings=len(tuning), inset=args.inset, flipped=args.flipped)
 
         counts = {}
         for note in assignments.values():
             counts[note.support] = counts.get(note.support, 0)+1
+        unexplained = []
+        for record, contacts, results in per_group:
+            if record is None:
+                continue
+            active = [n for n in assignments.values()
+                      if n.start <= record.timestamp < n.end]
+            stray = unexplained_contacts(contacts, results + active)
+            if stray:
+                unexplained.append({
+                    'timestamp': record.timestamp,
+                    'contacts': [{'finger': c.finger, 'string': c.string, 'fret': c.fret,
+                                  'point': c.point.tolist()} for c in stray],
+                })
         summary = {
             'video': str(args.video.resolve()), 'model': str(args.model.resolve()),
             'frames': len(records), 'fps': fps, 'notes': len(notes),
             'tuning': list(tuning), 'max_fret': args.max_fret, 'string_inset': args.inset,
             'string_order': 'flipped' if args.flipped else 'normal',
             'string_order_selected': args.string_order,
+            'string_order_scores': order_scores,
             'fingertip_support_rate': round(fingered_rate(per_group), 4),
             'support_counts': counts,
+            'unexplained_fingers': unexplained,
             'board_frames': sum(r.observation is not None for r in records),
             'hand_frames': sum(r.hand_points is not None for r in records),
             'limitations': [
@@ -409,12 +469,13 @@ def main():
                 'A fingertip near a cell is not proof the string is pressed, and an undetected finger is not proof it is open.',
                 'Pitch comes from a general-purpose polyphonic model, not a guitar-specific one.',
                 'Fret numbering needs the nut; without it notes fall back to position-only or no-board support.',
-                'No transcription accuracy has been measured against annotated playing.',
+                'End-to-end audio/video transcription accuracy is unmeasured; GuitarSet benchmarks cover audio pitch and blind string assignment separately.',
             ],
         }
         jsonl = args.output/f'{args.video.stem}.tab.jsonl'
         write_jsonl(jsonl, records, assignments, args, tuning, summary)
-        print(json.dumps({k: v for k, v in summary.items() if k != 'limitations'}, indent=2))
+        print(json.dumps({k: v for k, v in summary.items()
+                          if k not in ('limitations', 'unexplained_fingers')}, indent=2))
         print(f'Notes: {jsonl}', flush=True)
 
         if args.write_video:
@@ -426,6 +487,7 @@ def main():
                 silent.unlink(missing_ok=True)
             else:
                 silent.replace(final)
+                print('Audio mux failed; the overlay is silent.', flush=True)
             print(f'Overlay: {final}', flush=True)
 
 

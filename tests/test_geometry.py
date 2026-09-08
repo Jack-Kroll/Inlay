@@ -16,7 +16,7 @@ class GeometryTests(unittest.TestCase):
         anchors = [{"s": a * fret_ratio(n) / (1 + c * fret_ratio(n)),
                     "conf": 0.9, "fret_num": n} for n in (1, 3, 7, 12)]
         fit = fit_from_assigned(anchors, 24)
-        self.assertIsNotNone(fit)
+        assert fit is not None
         self.assertAlmostEqual(fit["a"], a, places=6)
         self.assertAlmostEqual(fit["c"], c, places=6)
         for anchor in anchors:

@@ -13,7 +13,7 @@ Classes in your dataset:
   2: nut
 
 Usage:
-  python -m processing.training.train --zip guitar.v1i.yolov8-obb.zip --epochs 100 --imgsz 640
+  uv run --extra legacy python -m processing.training.train_obb --zip guitar.v1i.yolov8-obb.zip --epochs 100 --imgsz 640
 
 Outputs:
   runs/obb/guitar_fretboard_obb/weights/best.pt
@@ -83,6 +83,8 @@ def train_model(data_yaml: Path, args: argparse.Namespace) -> Path:
         train_kwargs["device"] = args.device
 
     model.train(**train_kwargs)
+    if model.trainer is None:
+        raise RuntimeError('YOLO training did not create a trainer')
     best_pt = Path(model.trainer.best)
     if not best_pt.is_file():
         raise FileNotFoundError(f"Training did not produce its expected checkpoint: {best_pt}")

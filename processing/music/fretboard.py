@@ -130,19 +130,22 @@ class BoardTransform:
         board = self.to_board(points)
         fret = ratio_to_fret(board[:, 0])
         span = 1 - 2 * self.inset
-        string = 1 + (board[:, 1] - self.inset) / span * (self.strings - 1)
+        string = (1 + (board[:, 1] - .5) / span if self.strings == 1 else
+                  1 + (board[:, 1] - self.inset) / span * (self.strings - 1))
         return fret, string
 
     def board_point(self, string, fret, depth=.5):
         """Image point for a fretted contact, ``depth`` of the way into the cell."""
         low, high = fret_ratio(max(fret - 1, 0)), fret_ratio(fret)
         ratio = float(low + (high - low) * depth) if fret >= 1 else float(fret_ratio(0))
-        across = self.inset + (string - 1) / max(self.strings - 1, 1) * (1 - 2 * self.inset)
+        across = (.5 if self.strings == 1 else
+                  self.inset + (string - 1) / (self.strings - 1) * (1 - 2 * self.inset))
         return self.to_image([[ratio, across]])[0]
 
     def string_polyline(self, string, max_fret=22, samples=24):
         frets = np.linspace(0, max_fret, samples)
-        across = self.inset + (string - 1) / max(self.strings - 1, 1) * (1 - 2 * self.inset)
+        across = (.5 if self.strings == 1 else
+                  self.inset + (string - 1) / (self.strings - 1) * (1 - 2 * self.inset))
         return self.to_image(np.stack([fret_ratio(frets), np.full(samples, across)], axis=1))
 
     def cell_radius(self, string, fret):
@@ -169,7 +172,7 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     consistent with the numbering fit by construction, so including them would
     add apparent support without adding evidence.
     """
-    if not 2 <= strings <= 12 or not 0 <= inset < .5:
+    if not 1 <= strings <= 12 or not 0 <= inset < .5:
         raise ValueError('Invalid string count or inset')
     anchors = {}
     if observation.nut is not None:
@@ -196,6 +199,10 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     centres = lines.mean(axis=1)
     _, _, vectors = np.linalg.svd(centres - centres.mean(0), full_matrices=False)
     along = vectors[0]
+    # SVD axes have arbitrary signs. Orient by increasing fret number so small
+    # camera movements cannot silently reverse the string order between frames.
+    if along @ (centres[-1] - centres[0]) < 0:
+        along = -along
     across = np.array([-along[1], along[0]])
     # Wire endpoints carry no string identity; impose one consistent order.
     order = np.argsort(lines @ across, axis=1)
@@ -213,7 +220,10 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     for number, line in zip(numbers, lines):
         centre, direction = line.mean(0), line[1]-line[0]
         span = [_intersect(centre, direction, edge) for edge in edges]
-        if any(point is None for point in span) or not np.isfinite(span).all():
+        if any(point is None for point in span):
+            continue
+        span = np.asarray(span, dtype=float)
+        if not np.isfinite(span).all():
             continue
         refined.append(span)
         kept.append(number)

@@ -41,7 +41,7 @@ def decode_maps(maps, threshold=.5):
     if axis[np.argmax(np.abs(axis))]<0: axis=-axis
     width = min(rect[1]);length = max(rect[1])
     if width<4 or length<2*width: return None
-    mask=np.zeros(binary.shape,np.uint8);cv2.fillConvexPoly(mask,neck.astype(np.int32),1)
+    mask=np.zeros(maps.shape[:2],np.uint8);cv2.fillConvexPoly(mask,neck.astype(np.int32),1)
     dilated=cv2.dilate(mask,np.ones((5,5),np.uint8))
 
     def lines(channel):
@@ -73,8 +73,8 @@ def decode_maps(maps, threshold=.5):
         offsets=np.linspace(-2*width,2*width,max(20,int(8*width)))
         samples=centers[:,None,:]+offsets[None,:,None]*directions[:,None,:]
         xy=np.rint(samples).astype(int)
-        good=(xy[...,0]>=0)&(xy[...,0]<mask.shape[1])&(xy[...,1]>=0)&(xy[...,1]<mask.shape[0])
-        x=np.clip(xy[...,0],0,mask.shape[1]-1)
+        good=(xy[...,0]>=0)&(xy[...,0]<maps.shape[1])&(xy[...,1]>=0)&(xy[...,1]<mask.shape[0])
+        x=np.clip(xy[...,0],0,maps.shape[1]-1)
         y=np.clip(xy[...,1],0,mask.shape[0]-1)
         inside=good&(mask[y,x]>0)
         counts=inside.sum(axis=1)
@@ -267,7 +267,7 @@ def transform_observation(observation,matrix):
 
 class FretboardTracker:
     def __init__(self,max_gap=.5,smoothing=.06):
-        if max_gap<=0 or smoothing<0: raise ValueError('Invalid tracker timing')
+        if not np.isfinite([max_gap,smoothing]).all() or max_gap<=0 or smoothing<0: raise ValueError('Invalid tracker timing')
         self.max_gap,self.smoothing=max_gap,smoothing
         self.reset()
 
@@ -276,13 +276,15 @@ class FretboardTracker:
         self.state='lost';self.flow_inliers=0;self.last_board_detection=None
 
     def _motion(self,gray):
+        if self.observation is None or self.previous_gray is None:
+            return None
         mask=np.zeros_like(self.previous_gray)
         cv2.fillConvexPoly(mask,self.observation.neck.astype(np.int32),255)
         points=cv2.goodFeaturesToTrack(self.previous_gray,150,.01,5,mask=mask)
         if points is None or len(points)<8:return None
-        current,status,_=cv2.calcOpticalFlowPyrLK(self.previous_gray,gray,points,None)
+        current,status,_=cv2.calcOpticalFlowPyrLK(self.previous_gray,gray,points,points.copy())
         if current is None:return None
-        back,status_back,_=cv2.calcOpticalFlowPyrLK(gray,self.previous_gray,current,None)
+        back,status_back,_=cv2.calcOpticalFlowPyrLK(gray,self.previous_gray,current,current.copy())
         if back is None:return None
         good=(status.ravel()>0)&(status_back.ravel()>0)&(np.linalg.norm(points-back,axis=2).ravel()<1.5)
         p,q=points[good],current[good]
@@ -306,7 +308,7 @@ class FretboardTracker:
     def update(self,frame,detected,timestamp):
         if not np.isfinite(timestamp):raise ValueError('Timestamp must be finite')
         gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-        if self.last_time is not None and (timestamp<=self.last_time or timestamp-self.last_time>self.max_gap or gray.shape!=self.previous_gray.shape):
+        if self.last_time is not None and (timestamp<=self.last_time or timestamp-self.last_time>self.max_gap or self.previous_gray is None or gray.shape!=self.previous_gray.shape):
             self.reset()
         warped=None;self.flow_inliers=0
         if self.observation is not None and self.previous_gray is not None:
@@ -321,7 +323,7 @@ class FretboardTracker:
                 for i,line in enumerate(detected.frets):
                     if not warped.frets:break
                     distances=[np.linalg.norm(line.mean(0)-f.mean(0)) if j not in used else np.inf for j,f in enumerate(warped.frets)]
-                    j=int(np.argmin(distances))
+                    j=int(np.argmin(np.asarray(distances, dtype=float)))
                     if distances[j]<max(2,width*.15):
                         used.add(j);old=warped.frets[j]
                         if np.linalg.norm(line-old[::-1])<np.linalg.norm(line-old):old=old[::-1]
@@ -332,7 +334,7 @@ class FretboardTracker:
                     for i,line in enumerate(detected.frets):
                         if not warped.frets:break
                         distances=[np.linalg.norm(line.mean(0)-f.mean(0)) if j not in numbered_used else np.inf for j,f in enumerate(warped.frets)]
-                        j=int(np.argmin(distances))
+                        j=int(np.argmin(np.asarray(distances, dtype=float)))
                         if distances[j]<max(2,width*.15):
                             detected.numbers[i]=warped.numbers[j];numbered_used.add(j)
                     if any(n is not None for n in detected.numbers):
@@ -349,8 +351,15 @@ class FretboardTracker:
             self.observation.confidence*=np.exp(-(timestamp-self.last_time)/self.max_gap)
         else:
             self.observation=None;self.state='lost';self.last_detection=None
+        # Board detections and absolute numbering have independent lifetimes.
+        # A recent unnumbered detection must not extend old numbers through a
+        # subsequent motion-only gap.
+        if (self.observation is not None and self.last_detection is not None
+                and timestamp-self.last_detection >= self.max_gap):
+            self.observation.numbers=[None]*len(self.observation.frets)
+            self.observation.numbering='unknown'
+            self.observation.estimates=[]
         self.previous_gray=gray;self.last_time=timestamp
         return self.observation
-
 
 

@@ -161,10 +161,10 @@ supervised heads. Version is 1 and heads are `["neck", "fret", "nut"]`.
 The original code remains available for controlled comparison:
 
 ```sh
-uv run python -m processing.vision.legacy_preview \
+uv run --extra legacy python -m processing.vision.legacy_preview \
   --model runs/obb/runs/obb/guitar_fretboard_obb_gpu-4/weights/best.pt \
   --source 0 --show-detections
-uv run python -m processing.training.train_obb \
+uv run --extra legacy python -m processing.training.train_obb \
   --zip guitar.v1i.yolov8-obb.zip --name obb-baseline
 ```
 
@@ -199,5 +199,4 @@ live-camera FPS guarantee, and hardware load affects timing.
 
 For additional speed, try `--imgsz 640` (or 512). Smaller inference sizes may
 miss fine/distant frets. Omit the option to keep the original trained resolution.
-
 

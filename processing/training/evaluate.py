@@ -43,6 +43,8 @@ def main():
     levels=[0,.15,.3] if args.stress else [0]
     for record in records:
         image=cv2.imread(record['image'])
+        if image is None:
+            raise ValueError(f"Cannot decode {record['image']}")
         target,valid=render_targets(record,image.shape,detector.size)
         boxed,(_,_,_,_)=letterbox(image,detector.size)
         # Evaluate in letterboxed coordinates at a documented, fixed tolerance.

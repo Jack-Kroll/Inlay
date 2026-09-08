@@ -31,3 +31,10 @@ transcribe = [
 
 [tool.uv]
 package = false
+
+[tool.pyright]
+include = ["processing", "tests"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.11"
+typeCheckingMode = "basic"

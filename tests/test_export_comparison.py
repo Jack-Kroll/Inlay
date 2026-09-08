@@ -4,6 +4,12 @@ from processing.tools.verify_coreml import compare
 
 
 class ExportComparisonTests(unittest.TestCase):
+    def test_nonfinite_geometry_cannot_pass_parity(self):
+        for value in (float('nan'), float('inf')):
+            corners = np.full((4, 2), value)
+            with self.assertRaisesRegex(AssertionError, 'non-finite'):
+                compare([(0, .9, corners)], [(0, .9, corners)])
+
     def setUp(self):
         self.box = np.array([[0, 0], [20, 0], [20, 2], [0, 2]])
 

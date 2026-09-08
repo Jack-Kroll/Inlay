@@ -9,7 +9,8 @@ label supervision, occlusion augmentation, motion-supported tracking, video/JSON
 diagnostics, held-out pixel evaluation, and offline tab transcription combining
 pitch detection with fretting-hand tracking. The previous YOLO OBB detector
 remains available as a baseline. Live transcription and the mobile app are still
-to build. No transcription or camera accuracy has been measured.
+to build. Audio pitch and blind string assignment have been measured on GuitarSet;
+end-to-end transcription and camera accuracy remain unmeasured.
 
 ## Get started
 
@@ -19,6 +20,10 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.11. From the project root
 uv sync --locked
 uv run python -m unittest discover -s tests -v
 ```
+
+Pitch-decoder/scoring tests require `uv sync --locked --extra transcribe`; they
+are skipped with the base install. For VS Code, select `.venv/bin/python` as the
+Python interpreter. The project includes a basic Pyright configuration.
 
 ## Train the replacement
 
@@ -64,7 +69,7 @@ Restart that app after changing permissions and close other camera applications.
 
 ```sh
 uv sync --locked --extra transcribe
-uv run python -m processing.music.transcribe \
+uv run --extra transcribe python -m processing.music.transcribe \
   --model runs/dense/fretboard-v1/best.pt \
   --video clips/take-1.mp4 --output runs/transcribe/take-1 \
   --device mps --progress
@@ -78,15 +83,19 @@ fingers are listed rather than hidden. Strings are interpolated across the board
 not detected, and standard tuning is assumed unless `--tuning` says otherwise.
 It runs on a recording because Basic Pitch reads a whole soundtrack.
 
-See [tab transcription](docs/transcription.md) for the geometry, the scoring and
-the list of things it cannot do.
+The audio thresholds are tuned against GuitarSet rather than guessed: F1 .779 on
+held-out annotated guitar, up from .740 at Basic Pitch's own defaults. See
+[pitch tuning](docs/pitch-tuning.md) for the sweep,
+[tab logic](docs/tab-logic.md) for the string-choice measurement, and
+[tab transcription](docs/transcription.md) for the geometry, the scoring and the
+list of things it cannot do.
 
 ## Compare the original detector
 
 Existing OBB checkpoints use the legacy entry point:
 
 ```sh
-uv run python -m processing.vision.legacy_preview \
+uv run --extra legacy python -m processing.vision.legacy_preview \
   --model runs/obb/runs/obb/guitar_fretboard_obb_gpu-4/weights/best.pt \
   --source 0 --show-detections
 ```
@@ -107,9 +116,12 @@ attribution files when sharing them. There is no shared artifact download yet.
 | `processing/training/evaluate.py` | Clean and synthetic-occlusion pixel evaluation |
 | `processing/vision/legacy_preview.py` | Original OBB overlay for comparison |
 | `processing/music/fretboard.py` | Image to (fret, string) board coordinates |
-| `processing/music/fusion.py` | Pitch plus hand evidence to tab positions |
+| `processing/music/fusion.py` | Pitch plus hand evidence to tab positions; neck-position planning |
 | `processing/music/transcribe.py` | Offline transcription CLI and overlay |
 | `processing/music/hands.py` | MediaPipe fingertips; `pitch.py` Basic Pitch |
+| `processing/tools/tune_pitch.py` | Basic Pitch settings swept against GuitarSet |
+| `processing/tools/eval_tab.py` | String choice scored against GuitarSet |
+| `processing/tools/rescue_bound.py` | Ceiling for a visual-candidate note rescue |
 | `packages/music` | Versioned timed-note contract for the future app |
 | `tests` | Geometry, data, model, tracker and compatibility checks |
 
@@ -120,7 +132,7 @@ Run tests before sharing changes. Commit `pyproject.toml`, `uv.lock`, and
 and model binaries out of source control.
 
 See [architecture and limitations](docs/architecture.md). Core ML tools are optional
-(`uv run --extra coreml`) and currently support the legacy OBB model only. The
+(`uv run --extra legacy --extra coreml`) and currently support the legacy OBB model only. The
 YOLO baseline now needs `--extra legacy`, which keeps `ultralytics` and its
 `opencv-python` dependency out of the default install: MediaPipe requires
 `opencv-contrib-python`, and two distributions cannot share the `cv2` namespace.

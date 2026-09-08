@@ -1,4 +1,4 @@
-"""Diagnostic overlay. Run from the repository root with python -m processing.vision.preview."""
+"""OBB overlay: uv run --extra legacy python -m processing.vision.legacy_preview."""
 import argparse
 import sys
 from collections import deque

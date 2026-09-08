@@ -9,7 +9,7 @@ Install the extra and run it on a clip that has sound:
 
 ```sh
 uv sync --locked --extra transcribe
-uv run python -m processing.music.transcribe \
+uv run --extra transcribe python -m processing.music.transcribe \
   --model runs/dense/fretboard-v1/best.pt \
   --video clips/take-1.mp4 --output runs/transcribe/take-1 \
   --device mps --progress
@@ -24,6 +24,9 @@ Add `--no-video` to skip rendering when only the JSONL matters, `--max-frames`
 to cut a long clip short, and `--mirror` to flip the rendered video for a
 front-camera recording. Mirroring is display only: the board fit, the tab and
 the JSONL always stay in original camera coordinates.
+Notes starting beyond the analyzed video are omitted, and notes crossing its
+end are shortened to that boundary. Audio detection still reads the full soundtrack.
+Short replacement audio is padded with silence to preserve every rendered frame.
 
 ## Why this is offline
 
@@ -75,10 +78,33 @@ placement is chosen per chord, not per frame, so the tab does not flicker. No
 two simultaneous notes may take the same string, because one string sounds one
 pitch; a note displaced by that rule is flagged `string-taken` rather than
 quietly respelled.
+This constraint includes notes still sounding from earlier onset groups. If
+every candidate string is occupied, the new note stays unassigned with a
+`no-free-string` flag. Visual evidence must be within 120 ms of the onset;
+distant frames cannot supply a hand or board position.
+
+An open string is never judged on how near the fingers are, since it needs no
+hand; what it is worth is a fixed prior, set where the stage stops
+systematically refusing to call anything open. Nothing here can actually tell an
+open B from the same pitch fretted elsewhere.
 
 An unoccupied string counts for less than a fingertip sitting on a cell.
 A missing fingertip is only evidence of absence — it may be occluded or simply
-missed — so positive evidence always outranks the lack of it.
+missed — so positive evidence always outranks the lack of it. When *no*
+fingertips are located at all there is no evidence either way, so the
+open-string credit drops to zero and the neck position decides.
+
+A note still ringing from an earlier onset does not block its string: plucking a
+string again is what stops the note on it, so the earlier note is truncated to
+the new onset and flagged `stopped-by-repluck`. Only notes sounded together
+compete for a string.
+
+The neck position is not decided chord by chord. `plan_positions` runs a
+Viterbi pass over the whole clip before any note is placed: groups where the
+hand was actually seen are pinned to it, and the rest are filled in from the
+chords on either side and the cost of moving between them. A blind chord is
+therefore answered by its neighbours in both directions rather than by a running
+average of earlier guesses. See [tab logic](tab-logic.md).
 
 Each note carries a `support` value:
 
@@ -94,6 +120,8 @@ note at all, `string-taken`, `out-of-range` when the tuning cannot produce the
 pitch, and `no-free-string`. Fingertips on the board that no sounding note
 accounts for are reported as unexplained; they are usually a finger damping,
 hovering or mid-shift, but they can also mean the string geometry is wrong.
+The JSONL summary records these unexplained contacts at onset-group observations,
+along with the support scores for each tested string order.
 
 ## Tuning
 
@@ -102,15 +130,39 @@ for example `--tuning 64,59,55,50,45,38` for drop D. Ascending order is rejected
 because the string-number convention would silently invert the tab. Nothing
 detects the actual tuning; a mistuned or capoed guitar produces confident and
 wrong tab.
+The audio frequency bounds and the overlay's string count and labels follow
+the configured tuning and maximum fret. One to twelve strings are supported.
 
 ## What is not established
 
-- No transcription accuracy has been measured. There is no annotated tab to
-  measure against, and the fretboard model itself is not finished training.
+- The audio stage reaches F1 .779 (precision .796, recall .762) on held-out
+  GuitarSet excerpts — .868 on single-note solo lines, .742 on strummed comping.
+  See [pitch tuning](pitch-tuning.md).
+- Given perfect pitch and no visible hand, the tab stage puts 69.8% of notes on
+  the string actually played, but only 50.6% of notes that were played open;
+  see [tab logic](tab-logic.md). That is the floor,
+  not the pipeline: how much the fingertips add is unmeasured, because the fret
+  geometry and the fingertip stage still have no ground truth, and the fretboard
+  model itself is not finished training.
+- Notes 60-100 ms apart are the weak spot: recall .514 and precision .493
+  against .864/.834 for notes more than 400 ms apart. No Basic Pitch setting
+  fixes it — `min_note_ms` has no effect below about 60 ms — so it is a limit of
+  the model's onset resolution, not of the configuration.
 - A fingertip near a cell is not proof the string is pressed, and the hand
   cannot distinguish a fretted note from a damped or hovering finger.
 - Basic Pitch is general purpose. On harmonically rich plucks it reports
-  harmonics as separate notes, which then compete for strings.
+  harmonics as separate notes, which then compete for strings. Raising the
+  thresholds cut that back — precision went from .670 to .796 — but a fifth of
+  what it still reports was never played.
+  It also loses quiet notes inside chords, and no threshold recovers them
+  without admitting worse. The activations for those notes are still in the
+  forward pass, though: `detect_notes` returns them as a `Posteriorgram`, and a
+  stage that already knows which pitch to expect could confirm one at a
+  threshold no global detector can afford. With a perfect fretting-hand tracker
+  that would move recall .754 → .861, but it was measured and **not built**: a
+  tracker also proposes every finger that is down without being plucked, and
+  one such finger per note already puts F0.5 below the baseline at every gate.
+  See [pitch tuning](pitch-tuning.md).
 - Barre chords are not modelled: one finger covers several strings, but only its
   tip is located.
 - Fret numbering needs the nut. Without it a board can still be tracked, but

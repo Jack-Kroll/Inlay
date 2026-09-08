@@ -70,7 +70,7 @@ def main():
     model = FretboardNet(pretrained=not args.from_scratch and not args.resume).to(device)
     optimizer = torch.optim.AdamW(model.parameters(),lr=args.lr,weight_decay=.01)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,args.epochs,eta_min=args.lr*.03)
-    scaler = torch.amp.GradScaler('cuda',enabled=device.startswith('cuda'))
+    scaler = torch.GradScaler('cuda',enabled=device.startswith('cuda'))
     start, best, stale = 0, float('inf'), 0
     config = {k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()}
     if args.resume:

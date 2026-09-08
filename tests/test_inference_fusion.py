@@ -11,6 +11,7 @@ class InferenceFusionTests(unittest.TestCase):
         model = FretboardNet(pretrained=False).eval()
         for module in model.modules():
             if isinstance(module, nn.BatchNorm2d):
+                assert module.running_mean is not None and module.running_var is not None
                 module.running_mean.copy_(torch.randn_like(module.running_mean)*.1)
                 module.running_var.copy_(torch.rand_like(module.running_var)+.5)
         image = torch.randn(1, 3, 64, 96)

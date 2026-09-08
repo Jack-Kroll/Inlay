@@ -107,8 +107,9 @@ def fuse_encoder(model):
                 setattr(module, bn_name, nn.Identity())
         if isinstance(module, nn.Sequential):
             for index in range(len(module)-1):
-                if isinstance(module[index], nn.Conv2d) and isinstance(module[index+1], nn.BatchNorm2d):
-                    module[index] = fuse_conv_bn_eval(module[index], module[index+1])
+                conv, bn = module[index], module[index+1]
+                if isinstance(conv, nn.Conv2d) and isinstance(bn, nn.BatchNorm2d):
+                    module[index] = fuse_conv_bn_eval(conv, bn)
                     module[index+1] = nn.Identity()
     return model
 

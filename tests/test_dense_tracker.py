@@ -16,7 +16,7 @@ class DenseTrackerTests(unittest.TestCase):
         numbers=np.array([1,2,4,5,8,12,15])
         r=1-2.**(-numbers/12);distances=800*r/(1+.4*r)
         fit=lattice_fit(distances)
-        self.assertIsNotNone(fit)
+        assert fit is not None
         self.assertEqual(fit['numbers'],numbers.tolist())
 
     def test_lattice_rejects_insufficient_evidence(self):
@@ -28,12 +28,12 @@ class DenseTrackerTests(unittest.TestCase):
         maps[50:101,20:300,0]=.95
         for x in (40,80,120,160,200,240,280):maps[50:101,x-1:x+2,1]=.95
         observation=decode_maps(maps)
-        self.assertIsNotNone(observation)
+        assert observation is not None
         self.assertGreaterEqual(len(observation.frets),6)
         self.assertIsNone(observation.nut)
         self.assertEqual(observation.numbering,'unknown')
         rotated=decode_maps(np.rot90(maps).copy())
-        self.assertIsNotNone(rotated)
+        assert rotated is not None
         self.assertGreaterEqual(len(rotated.frets),6)
 
     def test_short_gap_requires_motion_and_expires(self):
@@ -63,7 +63,7 @@ class DenseTrackerTests(unittest.TestCase):
         xs=list(range(40,281,6))
         for x in xs:maps[30:111,x,1]=1
         observation=decode_maps(maps)
-        self.assertIsNotNone(observation)
+        assert observation is not None
         self.assertEqual(len(observation.frets),len(xs))
         centers=sorted(float(line[:,0].mean()) for line in observation.frets)
         np.testing.assert_allclose(centers,xs,atol=1)

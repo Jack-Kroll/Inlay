@@ -27,6 +27,7 @@ class PreviewDisplayTests(unittest.TestCase):
         result = display_observation(original, 32, True)
         np.testing.assert_allclose(result.neck[:, 0], 31-original.neck[:, 0])
         np.testing.assert_allclose(result.frets[0][:, 0], [24, 24])
+        assert result.nut is not None
         np.testing.assert_allclose(result.nut[:, 0], [29, 29])
         np.testing.assert_array_equal(original.frets[0][:, 0], [7, 7])
         self.assertEqual(result.numbers, [5])
@@ -56,7 +57,9 @@ class PreviewDisplayTests(unittest.TestCase):
         reader = LatestCameraFrame(capture, time.monotonic())
         reader.worker.join(timeout=1)
         self.assertFalse(reader.worker.is_alive())
-        index, timestamp, frame = reader.read()
+        packet = reader.read()
+        assert packet is not None
+        index, timestamp, frame = packet
         self.assertEqual(index, 4)
         self.assertGreaterEqual(timestamp, 0)
         np.testing.assert_array_equal(frame, 4)

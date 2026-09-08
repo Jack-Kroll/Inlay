@@ -27,6 +27,23 @@ def board(numbers=(1, 2, 4, 5, 8, 12, 15)):
 
 
 class FretEstimateTests(unittest.TestCase):
+    def test_numbering_expires_during_motion_after_recent_board_detection(self):
+        tracker = FretboardTracker(max_gap=.5)
+        frame = np.zeros((140, 640, 3), np.uint8)
+        initial = board(); assign_numbers(initial)
+        tracker.update(frame, initial, 0.)
+        with patch.object(tracker, '_motion', return_value=initial):
+            partial = board(); partial.nut = None; assign_numbers(partial)
+            tracker.update(frame, partial, .4)
+        self.assertEqual(partial.numbering, 'short-term tracked')
+        with patch.object(tracker, '_motion', return_value=partial):
+            expired = tracker.update(frame, None, .6)
+        self.assertEqual(tracker.state, 'tracked')
+        assert expired is not None
+        self.assertEqual(expired.numbering, 'unknown')
+        self.assertTrue(all(n is None for n in expired.numbers))
+        self.assertEqual(expired.estimates, [])
+
     def test_fills_only_bracketed_gaps_and_keeps_measurements_separate(self):
         observation = board()
         assign_numbers(observation)
@@ -96,6 +113,7 @@ class FretEstimateTests(unittest.TestCase):
             partial = board((1, 4, 5, 8, 12, 15)); partial.nut = None
             assign_numbers(partial)
             result = tracker.update(frame, partial, .1)
+            assert result is not None
             self.assertEqual(result.numbering, 'short-term tracked')
             self.assertIn(2, [e.number for e in result.estimates])
             self.assertTrue(all(e.method == 'tracked' for e in result.estimates))

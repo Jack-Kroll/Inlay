@@ -7,6 +7,10 @@ import numpy as np
 
 
 def compare(reference, exported, max_corner_error=3.0, max_conf_error=0.05):
+    for detections in (reference, exported):
+        for _, confidence, corners in detections:
+            if not np.isfinite(confidence) or not np.isfinite(corners).all():
+                raise AssertionError('Detections contain non-finite confidence or corners')
     if len(reference) != len(exported):
         raise AssertionError(f"Detection counts differ: {len(reference)} vs {len(exported)}")
     if not reference:
@@ -41,8 +45,9 @@ def detections(model_path, image, imgsz, conf):
     )[0]
     if result.obb is None:
         return []
-    return list(zip(result.obb.cls.cpu().numpy().astype(int),
-                    result.obb.conf.cpu().numpy(), result.obb.xyxyxyxy.cpu().numpy()))
+    obb = result.obb.cpu().numpy()
+    return list(zip(np.asarray(obb.cls).astype(int),
+                    np.asarray(obb.conf), np.asarray(obb.xyxyxyxy)))
 
 
 def main():

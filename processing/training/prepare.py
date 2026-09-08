@@ -132,6 +132,10 @@ def prepare(specs, output, groups=None, distance=4):
     records = [r for spec in specs for r in import_source(spec)]
     if not records:
         raise ValueError('No images found')
+    for r in records:
+        # Session IDs govern holdouts, but sampling must still balance original
+        # images independently of their offline copies within each session.
+        r['original_group'] = r['group']
     if groups:
         for r in records:
             if r['group'] not in groups:
@@ -174,13 +178,13 @@ def prepare(specs, output, groups=None, distance=4):
     for indices in components.values():
         # Preserve the existing test > val > train boundary. Remove lower-priority
         # duplicates, never promote augmented training examples into a held-out set.
-        split = max((records[i]['split'] for i in indices), key=rank.get)
+        split = max((records[i]['split'] for i in indices), key=lambda split: rank[split])
         group_id = hashlib.sha256('|'.join(sorted({records[i]['group'] for i in indices})).encode()).hexdigest()[:20]
         for i in indices:
             r = records[i]
             if r['split'] != split:
                 removed.append(r['image']); continue
-            r['original_group'] = r['group']; r['group'] = group_id
+            r['group'] = group_id
             kept.append(r)
     report = {'raw_splits':counts,'raw_images':len(records),'clipped_annotations':sum(a.get('clipped',False) for r in records for a in r['annotations']),'masked_missing_neck_images':sum(r['masked_missing_neck'] for r in records),'raw_source_groups':len({r['original_group'] if 'original_group' in r else r['group'] for r in records}),
               'near_duplicate_cross_split_pairs':len(near),'near_duplicate_examples':near[:30],

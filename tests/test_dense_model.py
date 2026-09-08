@@ -14,6 +14,7 @@ class DenseModelTests(unittest.TestCase):
         valid=torch.zeros_like(logits);valid[:,0]=1
         loss=masked_loss(logits,target,valid);loss.backward()
         self.assertTrue(torch.isfinite(loss))
+        assert logits.grad is not None
         self.assertEqual(logits.grad[:,1:].abs().sum().item(),0)
         self.assertGreater(logits.grad[:,0].abs().sum().item(),0)
 
@@ -22,4 +23,5 @@ class DenseModelTests(unittest.TestCase):
         loss=masked_loss(logits,torch.zeros_like(logits),torch.ones_like(logits))
         loss.backward()
         self.assertTrue(torch.isfinite(loss))
+        assert logits.grad is not None
         self.assertGreater(logits.grad.sum().item(),0)

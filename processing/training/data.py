@@ -52,7 +52,7 @@ def read_manifest(path):
 def letterbox(image, size):
     h, w = image.shape[:2]
     scale = min(size / h, size / w)
-    nh, nw = round(h * scale), round(w * scale)
+    nh, nw = max(1, round(h * scale)), max(1, round(w * scale))
     top, left = (size - nh) // 2, (size - nw) // 2
     out = np.full((size, size, 3), 114, np.uint8)
     out[top:top+nh, left:left+nw] = cv2.resize(image, (nw, nh))
@@ -71,6 +71,9 @@ def render_targets(record, shape, size):
     for label in record['annotations']:
         ch = HEADS.index(label['head'])
         pts = np.rint(np.array(label['points']) * [nw, nh] + [left, top]).astype(np.int32)
+        # Normalized boundary points (1.0) belong to the last image pixel,
+        # otherwise edge wires disappear into padding or outside the canvas.
+        pts = np.clip(pts, [left, top], [left+nw-1, top+nh-1]).astype(np.int32)
         plane = np.zeros((size, size), np.uint8)
         if label['kind'] == 'polygon':
             cv2.fillPoly(plane, [pts], 1)
@@ -88,7 +91,7 @@ def augment(image, target, valid, rng):
     s = image.shape[0]
     matrix = cv2.getRotationMatrix2D((s/2, s/2), rng.uniform(-35, 35), rng.uniform(.8, 1.2))
     matrix[:, 2] += rng.uniform(-.12, .12, 2) * s
-    matrix = np.vstack([matrix, [rng.uniform(-.00015, .00015), rng.uniform(-.00015, .00015), 1]])
+    matrix = np.vstack([matrix, np.array([rng.uniform(-.00015, .00015), rng.uniform(-.00015, .00015), 1])])
     image = cv2.warpPerspective(image, matrix, (s, s), borderValue=(114, 114, 114))
     target = cv2.warpPerspective(target, matrix, (s, s), flags=cv2.INTER_NEAREST)
     valid = cv2.warpPerspective(valid, matrix, (s, s), flags=cv2.INTER_NEAREST)
