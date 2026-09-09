@@ -9,6 +9,7 @@ import time
 import cv2
 import numpy as np
 from .tracker import FretboardTracker, decode_maps, transform_observation
+from processing.music.fretboard import board_transform, DEFAULT_STRING_INSET
 
 def open_capture(source):
     """Use the macOS camera backend explicitly and report actionable failures."""
@@ -124,9 +125,37 @@ def draw_observation(frame, observation, state):
                  tuple(observation.nut[1].astype(int)), (255, 0, 255), 3)
 
 
-def render_preview(frame, observation, state, mirrored=True):
+def estimated_string_paths(observation, inset=DEFAULT_STRING_INSET):
+    if observation is None:
+        return []
+    transform = board_transform(observation, inset=inset)
+    if transform is None:
+        return []
+    maximum = max((n for n in observation.numbers if n is not None), default=0)
+    paths = [transform.string_polyline(i, maximum) for i in range(1, 7)]
+    return paths if all(np.isfinite(path).all() for path in paths) else []
+
+
+def render_preview(frame, observation, state, mirrored=True, show_strings=False,
+                   inset=DEFAULT_STRING_INSET):
     display = cv2.flip(frame, 1) if mirrored else frame.copy()
     draw_observation(display, display_observation(observation, frame.shape[1], mirrored), state)
+    if show_strings:
+        paths = estimated_string_paths(observation, inset)
+        for path in paths:
+            path = path.copy()
+            if mirrored:
+                path[:, 0] = frame.shape[1] - 1 - path[:, 0]
+            for a, b in zip(path[:-1], path[1:]):
+                # Clip before integer drawing; bad extrapolations cannot overflow.
+                points = np.clip([a, b], -1000000, 1000000).astype(int)
+                visible, p, q = cv2.clipLine((0, 0, display.shape[1], display.shape[0]),
+                                           tuple(points[0]), tuple(points[1]))
+                if visible:
+                    cv2.line(display, p, q, (0, 240, 255), 1, cv2.LINE_AA)
+        draw_text(display, 'Yellow: estimated strings' if paths else
+                  'Strings: waiting for consistent numbered fret endpoints', (15, 69), .45,
+                  color=(0, 240, 255))
     return display
 
 
@@ -143,11 +172,15 @@ def main():
     ap.add_argument('--show-heatmaps', '--show-detections', dest='show_heatmaps', action='store_true')
     ap.add_argument('--heatmap-fps', type=float, default=5.,
                     help='Refresh diagnostic maps separately from the camera preview')
+    ap.add_argument('--show-strings', action=argparse.BooleanOptionalAction, default=True,
+                    help='Draw six estimated string paths from nut/fret endpoints (default).')
+    ap.add_argument('--inset', type=float, default=DEFAULT_STRING_INSET,
+                    help='Fraction of detected width inside each edge for outer strings (default: .09).')
     ap.add_argument('--jsonl', type=Path)
     ap.add_argument('--headless', action='store_true')
     ap.add_argument('--max-frames', type=int)
     args = ap.parse_args()
-    if (not 0 < args.threshold < 1 or not np.isfinite(args.max_gap) or args.max_gap <= 0
+    if (not 0 <= args.inset < .5 or not 0 < args.threshold < 1 or not np.isfinite(args.max_gap) or args.max_gap <= 0
             or not np.isfinite(args.heatmap_fps) or args.heatmap_fps <= 0
             or (args.max_frames is not None and args.max_frames < 1)):
         ap.error('Invalid threshold, max-gap, heatmap-fps or max-frames')
@@ -212,12 +245,14 @@ def main():
                 'estimated_frets': [{'endpoints': e.line.tolist(), 'number': e.number,
                                      'source': 'estimated', 'method': e.method}
                                     for e in observation.estimates] if observation else [],
+                'estimated_strings': [p.tolist() for p in estimated_string_paths(observation, args.inset)],
+                'string_inset': args.inset,
                 'confidence': observation.confidence if observation else 0.,
             }
             if output:
                 output.write(json.dumps(record)+'\n')
             if not args.headless:
-                display = render_preview(frame, observation, tracker.state, args.mirror)
+                display = render_preview(frame, observation, tracker.state, args.mirror, args.show_strings, args.inset)
                 fps_text = f'{actual_fps:.1f} FPS' if actual_fps is not None else 'warming up'
                 draw_text(display, f'{tracker.state} | {fps_text} | {latency:.0f} ms | numbering: {record["numbering"]}', (15, 25))
                 draw_text(display, 'Blue: detected | Orange: estimated (~)', (15, 47), .45)

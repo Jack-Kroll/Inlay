@@ -19,7 +19,7 @@ import numpy as np
 
 # Strings sit inside the edges of the board. This is an assumption about
 # instrument setup, not a measurement, and it directly scales string error.
-DEFAULT_STRING_INSET = .12
+DEFAULT_STRING_INSET = .09
 MIN_ANCHORS = 3
 
 
@@ -35,45 +35,6 @@ def ratio_to_fret(ratio):
     with np.errstate(divide='ignore', invalid='ignore'):
         fret = -12 * np.log2(remainder)
     return np.where(remainder > 0, fret, np.inf)
-
-
-def clip_to_hull(centre, direction, hull):
-    """Intersect an infinite line with a convex polygon (Cyrus-Beck).
-
-    Detected wire endpoints stop wherever the evidence stops, so they are not
-    comparable between wires. Clipping every wire to the same neck boundary is
-    what makes the across coordinate mean the same thing on each of them.
-    """
-    direction = np.asarray(direction, float)
-    norm = np.linalg.norm(direction)
-    if norm < 1e-9:
-        return None
-    direction = direction / norm
-    centre = np.asarray(centre, float)
-    hull = np.asarray(hull, float).reshape(-1, 2)
-    if len(hull) < 3:
-        return None
-    area = .5 * np.sum(hull[:, 0]*np.roll(hull[:, 1], -1) - np.roll(hull[:, 0], -1)*hull[:, 1])
-    polygon = hull if area > 0 else hull[::-1]
-    low, high = -np.inf, np.inf
-    for index in range(len(polygon)):
-        start, end = polygon[index], polygon[(index+1) % len(polygon)]
-        edge = end - start
-        normal = np.array([edge[1], -edge[0]])
-        denominator = normal @ direction
-        numerator = normal @ (start - centre)
-        if abs(denominator) < 1e-12:
-            if numerator < 0:
-                return None
-            continue
-        distance = numerator / denominator
-        if denominator > 0:
-            high = min(high, distance)
-        else:
-            low = max(low, distance)
-    if not np.isfinite(low) or not np.isfinite(high) or high - low < 1e-6:
-        return None
-    return np.array([centre + low*direction, centre + high*direction])
 
 
 def _fit_edge(points):
@@ -97,6 +58,35 @@ def _point_line_distance(points, edge):
     origin, along = edge
     delta = np.asarray(points, float) - origin
     return np.abs(delta[:, 0]*along[1] - delta[:, 1]*along[0])
+
+
+def _endpoint_edge(points, across, side, width):
+    """Consensus outer rail; require three endpoints, tolerate inward truncation.
+
+    Outer outliers are penalized, rather than blindly taking a convex hull.
+    If all wires end short consistently, their true width is unknowable here.
+    """
+    tolerance = max(1., width * .035)
+    best = None
+    best_score = -float('inf')
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            delta = points[j] - points[i]
+            length = np.linalg.norm(delta)
+            if length < width * .25:
+                continue
+            direction = delta / length
+            normal = np.array([-direction[1], direction[0]])
+            if normal @ across < 0:
+                normal = -normal
+            signed = (points - points[i]) @ normal
+            support = np.abs(signed) <= tolerance
+            outside = signed < -tolerance if side == 0 else signed > tolerance
+            score = support.sum() - 2 * outside.sum()
+            if support.sum() >= MIN_ANCHORS and score > best_score:
+                best_score = score
+                best = _fit_edge(points[support])
+    return best
 
 
 @dataclass
@@ -186,16 +176,7 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     raw = np.array([anchors[n] for n in numbers])
     if not np.isfinite(raw).all():
         return None
-    # Re-cut every wire against the neck boundary so both ends mean 'board edge'.
-    clipped, kept = [], []
-    for number, line in zip(numbers, raw):
-        span = clip_to_hull(line.mean(0), line[1]-line[0], observation.neck)
-        if span is not None:
-            clipped.append(span)
-            kept.append(number)
-    if len(kept) < MIN_ANCHORS:
-        return None
-    numbers, lines = kept, np.array(clipped)
+    lines = raw
     centres = lines.mean(axis=1)
     _, _, vectors = np.linalg.svd(centres - centres.mean(0), full_matrices=False)
     along = vectors[0]
@@ -207,15 +188,17 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     # Wire endpoints carry no string identity; impose one consistent order.
     order = np.argsort(lines @ across, axis=1)
     ordered = np.take_along_axis(lines, order[..., None], axis=1)
-    # A convex hull of a segmentation mask has rounded ends, so individual chords
-    # disagree about where the board edge is. Fit one straight edge per side from
-    # all of them, then take each wire's span between those two edges.
-    edges = (_fit_edge(ordered[:, 0]), _fit_edge(ordered[:, 1]))
     width = float(np.median(np.linalg.norm(ordered[:, 1]-ordered[:, 0], axis=1)))
     if width <= 0:
         return None
-    edge_residual = float(max(np.median(_point_line_distance(ordered[:, side], edges[side]))
-                              for side in (0, 1)) / width)
+    # Short/occluded wires may lie inside the rails but must not shrink them.
+    edges = tuple(_endpoint_edge(ordered[:, side], across, side, width)
+                  for side in (0, 1))
+    if any(edge is None for edge in edges):
+        return None
+    edge_residual = float(max(np.median(np.sort(
+        _point_line_distance(ordered[:, side], edges[side]))[:MIN_ANCHORS])
+        for side in (0, 1)) / width)
     refined, kept = [], []
     for number, line in zip(numbers, lines):
         centre, direction = line.mean(0), line[1]-line[0]

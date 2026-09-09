@@ -268,7 +268,7 @@ invented note as no worse than a missed one -- which is the tradeoff this
 document rejected when the thresholds were set, for the same reason: a spurious
 pitch takes a string away from a real note.
 
-### Conclusion: not built
+### Original conclusion: not built
 
 The rescue is not worth implementing as things stand. It buys recall the
 project has already decided it does not want to buy at this price, and the
@@ -293,3 +293,8 @@ Pitch masks frequency bins in place. Earlier saved coarse/fine/holdout runs all
 used the same 70–1400 Hz bounds, so this fix does not invalidate those rankings.
 The 312-excerpt set was consulted when choosing the final default, so its score
 is validation evidence, not a pristine final test or an unseen-player holdout.
+
+A later opt-in `--visual-rescue` experiment is now implemented; see
+[transcription](transcription.md#experimental-finger-confirmed-weak-audio).
+It adds temporal fingertip agreement and preserves baseline assignments. The
+results above still apply to the original oracle experiment, not this new gate.

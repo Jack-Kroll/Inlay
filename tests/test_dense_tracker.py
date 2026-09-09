@@ -67,3 +67,16 @@ class DenseTrackerTests(unittest.TestCase):
         self.assertEqual(len(observation.frets),len(xs))
         centers=sorted(float(line[:,0].mean()) for line in observation.frets)
         np.testing.assert_allclose(centers,xs,atol=1)
+
+    def test_wire_extents_come_from_heatmaps_not_neck_width(self):
+        for low, high in ((60, 90), (35, 115)):
+            maps = np.zeros((160, 320, 3), np.float32)
+            maps[low:high+1, 20:300, 0] = .95
+            for x in (40, 80, 120, 160, 200, 240, 280):
+                maps[50:101, x-1:x+2, 1] = .95
+            observation = decode_maps(maps)
+            assert observation is not None
+            self.assertGreaterEqual(len(observation.frets), 6)
+            for line in observation.frets:
+                self.assertAlmostEqual(float(line[:, 1].min()), 50, delta=2)
+                self.assertAlmostEqual(float(line[:, 1].max()), 100, delta=2)

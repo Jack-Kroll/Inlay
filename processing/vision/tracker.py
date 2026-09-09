@@ -42,7 +42,9 @@ def decode_maps(maps, threshold=.5):
     width = min(rect[1]);length = max(rect[1])
     if width<4 or length<2*width: return None
     mask=np.zeros(maps.shape[:2],np.uint8);cv2.fillConvexPoly(mask,neck.astype(np.int32),1)
-    dilated=cv2.dilate(mask,np.ones((5,5),np.uint8))
+    # The mask locates the neck, but must not supply fret/nut endpoints.
+    padding = max(5, int(width * .75) | 1)
+    dilated=cv2.dilate(mask,np.ones((padding,padding),np.uint8))
 
     def lines(channel):
         evidence=((maps[...,channel]>threshold)&(dilated>0)).astype(np.uint8)*255
@@ -76,14 +78,15 @@ def decode_maps(maps, threshold=.5):
         good=(xy[...,0]>=0)&(xy[...,0]<maps.shape[1])&(xy[...,1]>=0)&(xy[...,1]<mask.shape[0])
         x=np.clip(xy[...,0],0,maps.shape[1]-1)
         y=np.clip(xy[...,1],0,mask.shape[0]-1)
-        inside=good&(mask[y,x]>0)
+        inside=good&(dilated[y,x]>0)
         counts=inside.sum(axis=1)
         support=maps[y,x,channel]
-        coverage=((support>threshold)&inside).sum(axis=1)/np.maximum(counts,1)
-        eligible=np.flatnonzero((counts>=max(4,width*.7))&(coverage>=.45))
+        supported=(support>threshold)&inside
+        coverage=supported.sum(axis=1)/np.maximum(counts,1)
+        eligible=np.flatnonzero((counts>=max(4,width*.7))&(coverage>=.25))
         if len(eligible):
-            first=inside[eligible].argmax(axis=1)
-            last=inside.shape[1]-1-inside[eligible,::-1].argmax(axis=1)
+            first=supported[eligible].argmax(axis=1)
+            last=supported.shape[1]-1-supported[eligible,::-1].argmax(axis=1)
             segments=np.stack((samples[eligible,first],samples[eligible,last]),axis=1).astype(np.float32)
             confidence=(support*inside).sum(axis=1)/np.maximum(counts,1)
             positions=segments.mean(axis=1)@axis

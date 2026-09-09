@@ -137,6 +137,7 @@ class TabNote:
     finger: str | None = None
     alternatives: list = field(default_factory=list)
     flags: list = field(default_factory=list)
+    evidence: dict = field(default_factory=dict)
 
     @property
     def name(self):

@@ -125,32 +125,22 @@ class FretboardGeometryTests(unittest.TestCase):
         unnumbered.nut = None
         self.assertIsNone(board_transform(unnumbered))
 
-    def test_ragged_wire_endpoints_still_recover_the_board(self):
-        """Real detections stop where evidence stops, not at the board edge.
-
-        Each wire is truncated by a different amount on each side. Only clipping
-        every wire to a common fitted edge makes the across coordinate mean the
-        same thing on all of them.
-        """
-        numbers = (1, 3, 5, 7, 9, 12)
-        rng = np.random.default_rng(7)
-        frets = []
-        for number in numbers:
-            low, high = rng.uniform(.05, .3), rng.uniform(.7, .95)
-            frets.append(project([[fret_ratio(number), low],
-                                  [fret_ratio(number), high]]).astype(np.float32))
-        observation = Observation(
-            np.array(project([[0, 0], [.6, 0], [.6, 1], [0, 1]]), np.float32),
-            frets, wire(0), .9, list(numbers), 'nut-anchored fit')
+    def test_endpoints_ignore_bad_neck_and_short_occluded_wires(self):
+        observation = board()
+        reference = required_transform(observation)
+        observation.neck = project([[0, .3], [.6, .3], [.6, .65], [0, .65]])
+        for index in (1, 3):
+            number = observation.numbers[index]
+            observation.frets[index] = project([[fret_ratio(number), .2],
+                                                [fret_ratio(number), .7]])
         transform = required_transform(observation)
-        assert transform is not None
-        self.assertLess(transform.edge_residual, .01)
+        # Compare to independent ground truth, not the transform's own inverse.
         for string in (1, 3, 6):
             for fret in (2, 5, 9):
-                point = transform.board_point(string, fret)
+                point = reference.board_point(string, fret)
                 fret_value, string_value = transform.locate([point])
-                self.assertEqual(int(np.ceil(fret_value[0] - 1e-9)), fret)
-                self.assertAlmostEqual(string_value[0], string, places=2)
+                self.assertEqual(int(np.ceil(fret_value[0])), fret)
+                self.assertAlmostEqual(string_value[0], string, places=3)
 
     def test_wildly_inconsistent_wires_are_rejected(self):
         numbers = (1, 3, 5, 7, 9, 12)

@@ -51,6 +51,15 @@ class PreviewDisplayTests(unittest.TestCase):
         np.testing.assert_array_equal(shown, frame)
         self.assertIsNot(shown, frame)
 
+    def test_estimated_strings_mirror_only_the_display(self):
+        frame = np.zeros((100, 200, 3), np.uint8)
+        path = np.array([[30., 40.], [70., 45.]])
+        with patch('processing.vision.preview.estimated_string_paths', return_value=[path]), \
+                patch('processing.vision.preview.cv2.line') as line:
+            render_preview(frame, None, 'detected', True, True)
+        self.assertEqual(line.call_args.args[1:3], ((169, 40), (129, 45)))
+        np.testing.assert_array_equal(path, [[30., 40.], [70., 45.]])
+
     def test_live_capture_discards_queued_frames_and_releases_once(self):
         capture = MagicMock()
         capture.read.side_effect = [(True, np.full((2, 2, 3), i, np.uint8)) for i in range(5)] + [(False, None)]

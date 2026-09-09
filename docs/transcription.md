@@ -45,12 +45,11 @@ proportional to physical distance from the nut, so the map really is projective.
 Fret *number* is not, which is why the numbering is undone only after the
 projective step.
 
-Detected wires stop where the evidence stops, so their endpoints are not
-comparable between wires. Every numbered wire is therefore clipped to the neck
-region, one straight edge is fitted per side of the board from all of those
-chords, and each wire is re-cut between the two fitted edges. On held-out test
-images this dropped the median fit residual from 0.106 to 0.015 board units.
-A fit is rejected outright when either residual is too large.
+String geometry now uses nut/fret heatmap endpoints directly, without clipping
+wires to the segmented neck boundary. Each edge needs at least three consistent
+endpoints; inward-truncated wires can be extended to those fitted edges.
+The neck mask still guides detection orientation, search area, and tracking.
+Consistently shortened detections remain ambiguous and can underestimate width.
 
 A fingertip at fret coordinate 4.3 lies between wires 4 and 5 and therefore
 sounds fret 5. Interpolated fret estimates are deliberately **not** used as
@@ -59,7 +58,7 @@ support without adding evidence.
 
 **Strings are interpolated, not detected.** The model has no string head. Six
 strings are spread evenly across the detected board with a margin set by
-`--inset` (default 0.12 of board width). Errors here scale directly into string
+`--inset` (default 0.09 of board width). Errors here scale directly into string
 errors, and `--inset` is worth tuning per instrument.
 
 ## Which end of the board is string 1
@@ -137,7 +136,8 @@ the configured tuning and maximum fret. One to twelve strings are supported.
 
 - The audio stage reaches F1 .779 (precision .796, recall .762) on held-out
   GuitarSet excerpts — .868 on single-note solo lines, .742 on strummed comping.
-  See [pitch tuning](pitch-tuning.md).
+  See [pitch tuning](pitch-tuning.md). A stricter opt-in implementation is
+  described under Experimental finger-confirmed weak audio below.
 - Given perfect pitch and no visible hand, the tab stage puts 69.8% of notes on
   the string actually played, but only 50.6% of notes that were played open;
   see [tab logic](tab-logic.md). That is the floor,
@@ -159,10 +159,11 @@ the configured tuning and maximum fret. One to twelve strings are supported.
   forward pass, though: `detect_notes` returns them as a `Posteriorgram`, and a
   stage that already knows which pitch to expect could confirm one at a
   threshold no global detector can afford. With a perfect fretting-hand tracker
-  that would move recall .754 → .861, but it was measured and **not built**: a
+  that would move recall .754 → .861, in the original oracle experiment: a
   tracker also proposes every finger that is down without being plucked, and
   one such finger per note already puts F0.5 below the baseline at every gate.
-  See [pitch tuning](pitch-tuning.md).
+  See [pitch tuning](pitch-tuning.md). A stricter opt-in implementation is
+  described under Experimental finger-confirmed weak audio below.
 - Barre chords are not modelled: one finger covers several strings, but only its
   tip is located.
 - Fret numbering needs the nut. Without it a board can still be tracked, but
@@ -170,3 +171,48 @@ the configured tuning and maximum fret. One to twelve strings are supported.
 - Bends, slides, hammer-ons, vibrato and capos are not modelled at all.
 - The right hand is only used to pick the fretting hand; picking and strumming
   are not analysed.
+
+## Live string-grid experiment
+
+```sh
+uv run python -m processing.vision.preview --model runs/dense/fretboard-v1/best.pt --source 0 --device mps --show-strings --show-heatmaps --inset 0.09
+```
+
+Yellow lines are six estimated string paths, drawn only over the numbered fret
+range. They use the same transform as transcription. A waiting message means
+there is insufficient consistent endpoint/numbering evidence. Mirroring affects
+only display; JSONL `estimated_strings` stays in camera coordinates.
+`--inset` is the fraction of width inside each edge, not a universal standard.
+For example, Graph Tech's 43 mm / 35 mm E-to-E nut gives `(43-35)/(2*43)=0.093`:
+https://graphtech.com/products/tusq-slotted-nut-43-x-6-pq-6143-00
+Equal string-center spacing and a constant relative inset along the neck are
+approximations; nut dimensions alone do not determine bridge spacing or taper.
+
+## Experimental finger-confirmed weak audio
+
+Add `--visual-rescue` to enable a conservative second pass after the baseline
+string order and assignments are fixed. It finds actual local onset peaks at
+score >= .45 with contiguous note energy >= .35 for at least 60 ms, then requires
+an exact pitch/string/fret/finger match in at least three freshly detected frames
+within 60 ms of the onset, covering at least 40 ms and two-thirds of that window.
+Finger positions near string or fret boundaries are excluded. These thresholds
+are experimental model scores, not calibrated confidence probabilities.
+
+Existing notes are preserved. Duplicate/overlapping same-pitch candidates and
+candidates conflicting with an assigned string are rejected. This intentionally
+misses some re-plucks rather than modifying baseline durations. It cannot rescue
+open notes or establish that a visible finger is pressing/plucking a string.
+
+Added notes appear pink with `support: rescued`, `visual-audio-rescue` flags,
+and audio/visual evidence in JSONL. The summary separates baseline count and
+rescue counts. Use a separate output directory for comparison:
+
+```sh
+uv run --extra transcribe python -m processing.music.transcribe \
+  --model runs/dense/fretboard-v1/best.pt --video clips/take-4.mov \
+  --output runs/transcribe/take-4-rescue --device mps --mirror --visual-rescue
+```
+
+The prior oracle experiment in `pitch-tuning.md` found false positives from
+unplucked fingers. This stricter temporal implementation is an opt-in experiment,
+not evidence that the earlier precision problem is solved.

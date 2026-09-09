@@ -96,6 +96,28 @@ class TranscriptionCliTests(unittest.TestCase):
                 self.assertEqual(onset[0, 35 - 21], 1)
                 self.assertEqual(onset[0, 35 - 22], 0)
 
+    def test_rescue_is_written_with_provenance_and_baseline_count(self):
+        from processing.music.fusion import TabNote
+        recovered = TabNote(64,.3,.4,.4,string=2,fret=5,support='rescued',
+                            flags=['visual-audio-rescue'], evidence={'matching_frames':3})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            argv = ['transcribe','--model','unused.pt','--video','take.mov',
+                    '--output',tmp,'--device','cpu','--no-video','--visual-rescue']
+            records = [FrameRecord(i,i*.1,'lost') for i in range(6)]
+            activations = Posteriorgram(np.zeros((6,88)),np.zeros((6,88)),np.arange(6)*.1)
+            with patch('sys.argv',argv), patch('builtins.print'), \
+                    patch('processing.music.transcribe.notes_from_media',
+                          return_value=([NoteEvent(.1,.2,40,.8)],activations,root/'audio.wav')), \
+                    patch('processing.music.transcribe.analyse',return_value=(records,10.)), \
+                    patch('processing.music.rescue.rescue_notes',return_value=([recovered],{'accepted':1})):
+                main()
+            rows = [json.loads(line) for line in (root/'take.tab.jsonl').read_text().splitlines()]
+            self.assertEqual(rows[0]['baseline_notes'],1)
+            self.assertEqual(rows[0]['notes'],2)
+            self.assertEqual(rows[-1]['support'],'rescued')
+            self.assertEqual(rows[-1]['evidence']['matching_frames'],3)
+
     def test_empty_video_fails_before_writing_misleading_transcription(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

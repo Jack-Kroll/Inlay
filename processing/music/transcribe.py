@@ -23,14 +23,14 @@ import numpy as np
 
 from processing.vision.preview import draw_text, draw_observation, open_capture
 from processing.vision.tracker import FretboardTracker, decode_maps, transform_observation
-from .fretboard import board_transform
+from .fretboard import DEFAULT_STRING_INSET, board_transform
 from .fusion import (assign_positions, finger_contacts, hand_position, plan_positions,
                      unexplained_contacts)
 from .hands import CONNECTIONS, HandTracker, fretting_hand
 from .pitch import notes_from_media
 from .tuning import STANDARD_TUNING, note_name, validate_tuning
 
-SUPPORT_COLORS = {'fingered': (120, 255, 120), 'open': (255, 210, 120),
+SUPPORT_COLORS = {'rescued': (255, 130, 240), 'fingered': (120, 255, 120), 'open': (255, 210, 120),
                   'position-only': (80, 190, 255), 'no-hand': (150, 150, 150),
                   'no-board': (150, 150, 150), 'none': (150, 150, 150)}
 CHORD_WINDOW = .05
@@ -301,7 +301,7 @@ def _draw_hud(frame, record, transform, active, contacts, args):
     draw_text(frame, f'{record.index:5d}  t={record.timestamp:6.2f}s  {record.state}  '
                      f'numbering: {numbering}  board: {board}', (12, 24), .5)
     draw_text(frame, f'inference {record.inference_ms:.0f} ms   strings: interpolated '
-                     f'(inset {args.inset:.2f}{", flipped" if args.flipped else ""})', (12, 44), .42,
+                     f'(inset {args.inset:.2f}{", flipped" if args.flipped else ""}) | Pink: rescued', (12, 44), .42,
               (170, 170, 180))
     y = 70
     for note in active[:6]:
@@ -328,6 +328,7 @@ def write_jsonl(path, records, assignments, args, tuning, summary):
                 'amplitude': round(note.amplitude, 4), 'string': note.string, 'fret': note.fret,
                 'support': note.support, 'confidence': round(note.confidence, 4),
                 'finger': note.finger, 'alternatives': note.alternatives, 'flags': note.flags,
+                **({'evidence': note.evidence} if note.evidence else {}),
             })+'\n')
 
 
@@ -355,7 +356,7 @@ def main():
     parser.add_argument('--threshold', type=float, default=.5)
     parser.add_argument('--max-gap', type=float, default=.5)
     parser.add_argument('--max-fret', type=int, default=22)
-    parser.add_argument('--inset', type=float, default=.12,
+    parser.add_argument('--inset', type=float, default=DEFAULT_STRING_INSET,
                         help='Fraction of board width between the edge and the outer strings')
     parser.add_argument('--string-order', choices=['auto', 'normal', 'flipped'], default='auto',
                         help='Which end of a fret wire carries string 1; auto picks the order '
@@ -371,6 +372,8 @@ def main():
     parser.add_argument('--mirror', action='store_true', help='Mirror the rendered video')
     parser.add_argument('--no-strings', dest='show_strings', action='store_false',
                         help='Hide the interpolated string lines')
+    parser.add_argument('--visual-rescue', action='store_true',
+                        help='Experimentally add weak audio notes confirmed by stable fingertips')
     parser.add_argument('--no-video', dest='write_video', action='store_false')
     parser.add_argument('--max-frames', type=int)
     parser.add_argument('--progress', action='store_true')
@@ -399,9 +402,6 @@ def main():
     print(f'Transcribing {args.video} -> {args.output}/{args.video.stem}.*', flush=True)
     print('Detecting pitch...', flush=True)
     with tempfile.TemporaryDirectory() as workdir:
-        # `activations` is the raw posteriorgram behind these notes. Nothing
-        # consumes it yet: whether a visual-candidate rescue stage is worth
-        # building is what processing/tools/rescue_bound.py measures.
         notes, activations, audio_path = notes_from_media(
             args.video, args.audio, workdir, onset_threshold=args.onset_threshold,
             frame_threshold=args.frame_threshold, minimum_note_length=args.min_note_ms,
@@ -436,6 +436,19 @@ def main():
         _, assignments, per_group = best
         transform_kwargs = dict(strings=len(tuning), inset=args.inset, flipped=args.flipped)
 
+        rescue_report = {'enabled': args.visual_rescue, 'accepted': 0}
+        baseline_count = len(notes)
+        if args.visual_rescue:
+            from .rescue import rescue_notes
+            rescued, details = rescue_notes(activations, records, list(assignments.values()),
+                                             tuning, args.max_fret, args.inset, args.flipped,
+                                             duration)
+            rescue_report.update(details)
+            rescue_report.update(onset_threshold=.45, frame_threshold=.35)
+            for note in rescued:
+                assignments[len(assignments)] = note
+            print(f'  visually rescued {len(rescued)} weak audio notes', flush=True)
+
         counts = {}
         for note in assignments.values():
             counts[note.support] = counts.get(note.support, 0)+1
@@ -454,7 +467,8 @@ def main():
                 })
         summary = {
             'video': str(args.video.resolve()), 'model': str(args.model.resolve()),
-            'frames': len(records), 'fps': fps, 'notes': len(notes),
+            'frames': len(records), 'fps': fps, 'notes': len(assignments),
+            'baseline_notes': baseline_count, 'visual_rescue': rescue_report,
             'tuning': list(tuning), 'max_fret': args.max_fret, 'string_inset': args.inset,
             'string_order': 'flipped' if args.flipped else 'normal',
             'string_order_selected': args.string_order,
