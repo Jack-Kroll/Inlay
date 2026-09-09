@@ -136,3 +136,21 @@ See [architecture and limitations](docs/architecture.md). Core ML tools are opti
 YOLO baseline now needs `--extra legacy`, which keeps `ultralytics` and its
 `opencv-python` dependency out of the default install: MediaPipe requires
 `opencv-contrib-python`, and two distributions cannot share the `cv2` namespace.
+
+## License and third-party material
+
+This project's own source is MIT licensed; see [LICENSE](LICENSE).
+
+Two things it depends on are not covered by that licence and are not
+redistributed here:
+
+- **`--extra legacy` pulls in `ultralytics`, which is AGPL-3.0.** It is an
+  optional extra, so the default install does not touch it, but a combined work
+  built on the YOLO baseline — including one served over a network — inherits
+  AGPL obligations. The dense detector in `processing/vision/model.py` has no
+  such dependency.
+- **Datasets and weights are yours to supply.** `guitar_obb_dataset/`, `data/`,
+  `clips/`, `runs/` and `*.pt` are all gitignored deliberately. The local OBB
+  dataset came from Roboflow under its own terms: keep `README.roboflow.txt` and
+  `README.dataset.txt` alongside the images if you share them. GuitarSet
+  (Zenodo record 3371780) is CC BY 4.0 and must be cited, not vendored.
