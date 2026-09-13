@@ -7,10 +7,12 @@ NAMES = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
 
 
 def note_name(pitch):
+    """MIDI pitch -> name with octave, e.g. 60 -> 'C4'."""
     return f'{NAMES[int(pitch) % 12]}{int(pitch) // 12 - 1}'
 
 
 def validate_tuning(tuning):
+    """Check a user-supplied tuning and return it as a tuple of ints."""
     tuning = tuple(int(p) for p in tuning)
     if not 1 <= len(tuning) <= 12 or any(not 0 <= p <= 127 for p in tuning):
         raise ValueError('Tuning must be 1..12 MIDI pitches in 0..127')
@@ -29,6 +31,7 @@ def candidates(pitch, tuning=STANDARD_TUNING, max_fret=22):
     """
     if max_fret < 0:
         raise ValueError('max_fret must be non-negative')
+    # On each string, the fret needed is (target pitch - open string pitch).
     found = [(index + 1, int(pitch) - open_pitch)
              for index, open_pitch in enumerate(tuning)
              if 0 <= int(pitch) - open_pitch <= max_fret]
@@ -36,6 +39,7 @@ def candidates(pitch, tuning=STANDARD_TUNING, max_fret=22):
 
 
 def pitch_at(string, fret, tuning=STANDARD_TUNING):
+    """MIDI pitch sounded by ``fret`` on ``string`` (1 = highest)."""
     if not 1 <= string <= len(tuning) or fret < 0:
         raise ValueError('Invalid string or fret')
     return tuning[string - 1] + fret

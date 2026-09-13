@@ -11,17 +11,18 @@ The result is diagnostic, not validated ground-truth tablature.
 ## Run it
 
 ```sh
-uv sync --locked --extra transcribe
-uv run --extra transcribe python -m processing.music.transcribe \
-  --model runs/dense/fretboard-v1/best.pt \
-  --video clips/take-4.mov --output runs/transcribe/take-4 \
-  --device mps --progress
+uv run python -m processing.music.transcribe \
+  --video clips/take-4.mov
 ```
 
 Outputs:
 
 - `<video>.overlay.mp4`: annotated video with audio.
 - `<video>.tab.jsonl`: summary followed by one record per note.
+
+The defaults are `runs/dense/fretboard-v1/best.pt`, Apple MPS, and
+`runs/transcribe/<video-name>`. Override them with `--model`, `--device`, and
+`--output` when needed.
 
 Useful options:
 
@@ -106,9 +107,7 @@ incorrect output.
 ## Live string-grid preview
 
 ```sh
-uv run python -m processing.vision.preview \
-  --model runs/dense/fretboard-v1/best.pt --source 0 \
-  --device mps --show-strings --show-heatmaps --inset 0.09
+uv run python -m processing.vision.preview --show-heatmaps
 ```
 
 The string grid appears only when sufficient numbering and endpoint evidence
@@ -120,9 +119,9 @@ Add `--visual-rescue` to inspect weak Basic Pitch activations that have stable,
 exact-cell fingertip support:
 
 ```sh
-uv run --extra transcribe python -m processing.music.transcribe \
-  --model runs/dense/fretboard-v1/best.pt --video clips/take-4.mov \
-  --output runs/transcribe/take-4-rescue --device mps --mirror --visual-rescue
+uv run python -m processing.music.transcribe \
+  --video clips/take-4.mov --output runs/transcribe/take-4-rescue \
+  --mirror --visual-rescue
 ```
 
 Rescued notes are pink and include evidence in JSONL. The option preserves

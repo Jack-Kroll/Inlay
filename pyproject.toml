@@ -12,10 +12,6 @@ dependencies = [
     "torch==2.12.0",
     "torchvision==0.27.0",
     "pyyaml==6.0.3",
-]
-
-[project.optional-dependencies]
-transcribe = [
     # 1.0.x macOS arm64 wheels abort in TensorsToDetectionsCalculator (Metal graph
     # service unavailable), so the hand landmarker is pinned to the last good build.
     "mediapipe==0.10.35",

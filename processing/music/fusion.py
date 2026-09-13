@@ -74,11 +74,17 @@ def plan_positions(groups, observed, tuning=STANDARD_TUNING, max_fret=22):
     ``observed`` is the hand position per group, or None where no fingertips
     were located. A seen hand is taken as fact and pins that group; the search
     only fills the gaps between such anchors.
+
+    This is the Viterbi algorithm: states are neck positions (fret 0..max_fret),
+    each chord scores every position (emission), and moving the hand between
+    chords costs MOVE_PENALTY per fret (transition). Dynamic programming finds
+    the best-scoring path through the whole clip.
     """
     if not groups:
         return []
     grid = np.arange(max_fret + 1, dtype=float)
     # Emission: how well a group's pitches sit under a hand at each position.
+    # For each note take its most reachable spelling, then sum over the chord.
     emissions = []
     for group in groups:
         row = np.zeros(len(grid))
@@ -88,10 +94,13 @@ def plan_positions(groups, observed, tuning=STANDARD_TUNING, max_fret=22):
                 continue
             row += np.maximum.reduce([_fret_reach(fret, grid) for _, fret in options])
         emissions.append(row)
+    # best[i][p] = the position at group i-1 that led to position p at group i.
     best = np.zeros((len(groups), len(grid)), dtype=np.intp)
     score = emissions[0].copy()
+    # A seen hand pins its group: every other position becomes impossible.
     if observed[0] is not None:
         score = np.where(grid == round(observed[0]), score, -np.inf)
+    # Forward pass: best total score for ending at each position after each group.
     for index in range(1, len(groups)):
         # Cost of arriving at each position from the best predecessor.
         moved = score[:, None] - MOVE_PENALTY*np.abs(grid[:, None] - grid[None, :])
@@ -102,6 +111,7 @@ def plan_positions(groups, observed, tuning=STANDARD_TUNING, max_fret=22):
         best[index] = source
     if not np.isfinite(score).any():
         return [None]*len(groups)
+    # Backward pass: start from the best final position and follow the pointers.
     positions = [0]*len(groups)
     positions[-1] = int(np.argmax(score))
     for index in range(len(groups) - 1, 0, -1):
@@ -111,13 +121,14 @@ def plan_positions(groups, observed, tuning=STANDARD_TUNING, max_fret=22):
 
 @dataclass
 class FingerContact:
-    finger: str
-    point: np.ndarray
-    fret: int
-    string: int
-    fret_float: float
+    """One fingertip located on the board."""
+    finger: str          # 'index', 'middle', 'ring' or 'pinky'.
+    point: np.ndarray    # Image pixels.
+    fret: int            # The fret this finger would sound.
+    string: int          # Nearest string (1 = highest).
+    fret_float: float    # Continuous board position, e.g. 4.3 = just past wire 4.
     string_float: float
-    on_board: bool
+    on_board: bool       # False if the fingertip is off the string band or neck.
 
     @property
     def label(self):
@@ -126,6 +137,12 @@ class FingerContact:
 
 @dataclass
 class TabNote:
+    """A detected pitch plus where on the guitar we think it was played.
+
+    ``support`` records the evidence behind the placement: 'fingered' (a
+    fingertip is on that cell), 'open', 'position-only' (just the planned neck
+    position), 'no-hand', 'no-board', or 'rescued'.
+    """
     pitch: int
     start: float
     end: float
@@ -155,6 +172,7 @@ def finger_contacts(hand, transform, fingers=FRETTING_FINGERS, max_fret=22, marg
     for name, point, fret_float, string_float in zip(names, points, frets, strings):
         if not np.isfinite(fret_float) or not np.isfinite(string_float):
             continue
+        # A finger between wires 4 and 5 (fret_float 4.3) sounds fret 5, so round up.
         fret = int(np.ceil(fret_float - 1e-9))
         string = int(round(string_float))
         on_board = (0 < fret <= max_fret
@@ -166,10 +184,12 @@ def finger_contacts(hand, transform, fingers=FRETTING_FINGERS, max_fret=22, marg
 
 
 def _string_term(contact, string):
+    """1 when the fingertip is exactly on ``string``, falling linearly to 0 one string away."""
     return max(0., 1 - abs(contact.string_float - string) / STRING_TOLERANCE)
 
 
 def _fret_term(contact, fret):
+    """1 inside the fret's cell, falling linearly to 0 one fret outside it."""
     # Anywhere inside the cell is a full match; the cell spans fret-1 to fret.
     inside = fret - 1 <= contact.fret_float <= fret
     if inside:
@@ -179,12 +199,17 @@ def _fret_term(contact, fret):
 
 
 def hand_position(contacts):
+    """Where the hand is on the neck: median fret of on-board fingertips, or None."""
     usable = [c.fret_float for c in contacts if c.on_board]
     return float(np.median(usable)) if usable else None
 
 
 def _score(string, fret, contacts, position):
-    """Return (score, finger, contact term) for one candidate spelling."""
+    """Return (score, finger, contact term) for one candidate spelling.
+
+    score = CONTACT_WEIGHT * (is a fingertip on this cell?)
+          + POSITION_WEIGHT * (is this fret near where the hand is?)
+    """
     if fret == 0:
         # An open string is credited when nothing is sitting on that string.
         occupied = max((_string_term(c, string) * (1. if c.on_board else .3)
@@ -192,6 +217,7 @@ def _score(string, fret, contacts, position):
         credit = OPEN_CREDIT if contacts else BLIND_OPEN_CREDIT
         contact, finger = credit * (1 - occupied), None
     else:
+        # A fretted note is credited by the best-matching on-board fingertip.
         best, finger = 0., None
         for candidate in contacts:
             value = _string_term(candidate, string) * _fret_term(candidate, fret)
@@ -226,6 +252,7 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
     # the hand is missing, so the neck does not appear to teleport per chord.
     seen = hand_position(contacts)
     position = seen if seen is not None else position
+    # Score every possible (note, string, fret) combination in the chord.
     scored = []
     for index, note in enumerate(results):
         options = candidates(note.pitch, tuning, max_fret)
@@ -238,9 +265,12 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
             scored.append((score, contact, index, string, fret, finger))
     # Equal scores favour stronger audio activations, then lower-fret spellings.
     scored.sort(key=lambda row: (-row[0], -results[row[2]].amplitude, row[4], row[3]))
+    # Each note's favourite spelling, to detect when it gets bumped off it.
     best_choice = {}
     for row in scored:
         best_choice.setdefault(row[2], (row[3], row[4]))
+    # Greedy assignment: walk combinations best-first, giving each note the
+    # highest-scoring spelling whose string is still free.
     taken_note = set()
     simultaneous = {id(note) for note in results}
     sounding = list(occupied)
@@ -257,6 +287,7 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
             if 'stopped-by-repluck' not in other.flags:
                 other.flags.append('stopped-by-repluck')
         note.string, note.fret, note.confidence, note.finger = string, fret, float(score), finger
+        # Label what evidence backed the choice (see TabNote.support).
         # Only a genuine displacement counts: this note's own best-scoring
         # spelling was already claimed by a different note.
         if best_choice[index] != (string, fret):

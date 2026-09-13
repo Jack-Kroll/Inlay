@@ -58,13 +58,13 @@ Numbering availability is not numbering accuracy.
 ## Preview
 
 ```sh
-uv run python -m processing.vision.preview \
-  --model runs/dense/fretboard-v1/best.pt --source 0 \
-  --device mps --show-heatmaps
+uv run python -m processing.vision.preview
 ```
 
-Use a video path instead of `0` for repeatable checks. Add `--jsonl FILE
---headless` to record observations without opening windows.
+The defaults are the best checkpoint, camera `0`, Apple MPS, mirrored display,
+and estimated strings. Use `--source VIDEO` for repeatable checks. Add
+`--show-heatmaps` for diagnostic maps or `--jsonl FILE --headless` to record
+observations without opening windows.
 
 - Green: current detection.
 - Amber: short motion-supported tracking.

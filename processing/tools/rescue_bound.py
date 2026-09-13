@@ -15,7 +15,7 @@ degrades the oracle towards a real tracker by misreading a fraction of
 candidates, one string or one fret out, which is how inlay's interpolated
 string positions actually fail.
 
-    uv run --extra transcribe python -m processing.tools.rescue_bound \\
+    uv run python -m processing.tools.rescue_bound \\
       --limit 48 --output runs/rescue-bound/oracle.json --progress
 
 Inference is skipped entirely when `processing.tools.tune_pitch` has already
@@ -217,6 +217,7 @@ def _missed(reference, estimated):
 
 
 def report(baseline, totals, reach, rescued, excerpts, visual_error):
+    """Print the baseline and each gate's scores side by side."""
     print(f'\n{len(excerpts)} excerpts, {baseline.referenced} annotated notes')
     ceiling = ((baseline.matched + reach['missed_fretted'])/baseline.referenced
                if baseline.referenced else 0.)

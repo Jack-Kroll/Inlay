@@ -10,7 +10,7 @@ GuitarSet includes the string used for every annotated note. This command feeds
 perfect reference pitches into Inlay without video:
 
 ```sh
-uv run --extra transcribe python -m processing.tools.eval_tab
+uv run python -m processing.tools.eval_tab
 ```
 
 This measures fallback string assignment only. It is not end-to-end accuracy

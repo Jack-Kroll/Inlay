@@ -37,11 +37,13 @@ def inlay_string(gs_string, strings=len(guitarset.OPEN_STRINGS)):
 
 
 def measure(excerpts, tuning=STANDARD_TUNING, max_fret=22):
+    """Count how often the chosen string matches the annotated one."""
     counts = Counter()
     flags = Counter()
     for excerpt in excerpts:
         truth = sorted(excerpt.notes(), key=lambda note: note.start)
         notes = [Sounded(round(note.pitch), note.start, note.end) for note in truth]
+        # No frames at all: the tab stage has only pitch and timing to go on.
         assigned, _ = transcribe_notes([], notes, tuning, max_fret, .12, False)
         for reference, result in zip(truth, assigned.values()):
             flags.update(result.flags)

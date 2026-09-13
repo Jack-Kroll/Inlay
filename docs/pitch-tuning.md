@@ -18,7 +18,7 @@ note can take a string away from a real note in the tab stage.
 ## Run a sweep
 
 ```sh
-uv run --extra transcribe python -m processing.tools.tune_pitch \
+uv run python -m processing.tools.tune_pitch \
   --limit 48 --output runs/tune-pitch/coarse.json --progress
 ```
 
@@ -94,7 +94,7 @@ visible finger caused a sound.
 Use the bound experiment to revisit the decision:
 
 ```sh
-uv run --extra transcribe python -m processing.tools.rescue_bound \
+uv run python -m processing.tools.rescue_bound \
   --limit 48 --visual-error 0.10 --output runs/rescue-bound/oracle.json
 ```
 

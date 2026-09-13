@@ -14,7 +14,11 @@ from .hands import Hand
 
 def weak_candidates(activations, duration, onset_threshold=.45, frame_threshold=.35,
                     minimum_duration=.06):
-    """Yield actual onset peaks with contiguous post-attack pitch support."""
+    """Yield actual onset peaks with contiguous post-attack pitch support.
+
+    Uses lower thresholds than normal note detection, so it finds quiet notes
+    the main pass dropped. Yields (start, end, pitch, mean frame score, onset score).
+    """
     times = activations.times
     if len(times) < 3:
         return
@@ -24,6 +28,7 @@ def weak_candidates(activations, duration, onset_threshold=.45, frame_threshold=
     for column in range(activations.note.shape[1]):
         onsets = activations.onset[:, column]
         frames = activations.note[:, column]
+        # Local maxima of the onset score that clear the threshold.
         peaks = np.flatnonzero((onsets[1:-1] >= onset_threshold)
                                & (onsets[1:-1] > onsets[:-2])
                                & (onsets[1:-1] >= onsets[2:])) + 1
@@ -32,6 +37,7 @@ def weak_candidates(activations, duration, onset_threshold=.45, frame_threshold=
             if not 0 <= start < duration:
                 continue
             # Require energy at the attack; distant sustain cannot confirm it.
+            # The note lasts as long as the frame score stays above threshold.
             end = int(peak)
             while end < len(times) and frames[end] >= frame_threshold:
                 end += 1
@@ -59,11 +65,15 @@ def rescue_notes(activations, records, existing, tuning, max_fret, inset, flippe
     for start, end, pitch, amplitude, onset in sorted(
             weak_candidates(activations, duration, onset_threshold, frame_threshold)):
         report['audio_candidates'] += 1
+        # Skip pitches the main pass already reported around this time.
         if any(n.pitch == pitch and (abs(n.start-start) <= .08 or
                                      n.start < end and start < n.end)
                for n in list(existing) + added):
             report['duplicates'] += 1
             continue
+        # Look at video frames within 60 ms of the onset and count, per
+        # (string, fret, finger), how many show a fingertip squarely on a cell
+        # that would produce exactly this pitch.
         low, high = bisect_left(times, start-.06), bisect_right(times, start+.06)
         matches = Counter()
         observed_times = {}
@@ -79,6 +89,7 @@ def rescue_notes(activations, records, existing, tuning, max_fret, inset, flippe
                         contacts = finger_contacts(Hand(record.hand_points, record.hand_label, 1.),
                                                    transform, max_fret=max_fret)
                 contacts_cache[index] = contacts
+            # Near the string's centre line, well inside the fret cell, right pitch.
             keys = {(c.string, c.fret, c.finger) for c in contacts_cache[index]
                     if c.on_board and 1 <= c.string <= len(tuning) and c.fret > 0
                     and abs(c.string_float-c.string) <= .25
@@ -87,6 +98,8 @@ def rescue_notes(activations, records, existing, tuning, max_fret, inset, flippe
             for key in keys:
                 matches[key] += 1
                 observed_times.setdefault(key, []).append(times[index])
+        # Accept only if exactly one position is seen consistently: in >=3
+        # frames, >=2/3 of nearby frames, spread over >=40 ms.
         supported = [key for key, count in matches.items()
                      if count >= 3 and count/max(high-low, 1) >= 2/3
                      and max(observed_times[key])-min(observed_times[key]) >= .04]
@@ -94,6 +107,7 @@ def rescue_notes(activations, records, existing, tuning, max_fret, inset, flippe
             report['visual_rejected'] += 1
             continue
         string, fret, finger = supported[0]
+        # Don't put it on a string that is already playing another note.
         if any(n.string == string and (abs(n.start-start) <= .05 or
                                        n.start < end and start < n.end)
                for n in list(existing) + added):

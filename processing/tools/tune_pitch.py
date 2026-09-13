@@ -31,6 +31,7 @@ PITCH_TOLERANCE = 50.
 
 @dataclass(frozen=True)
 class Setting:
+    """One combination of Basic Pitch post-processing options to score."""
     onset_threshold: float = .6
     frame_threshold: float = .45
     min_note_ms: float = 60.
@@ -65,6 +66,7 @@ CURRENT = _shipped()
 
 @dataclass
 class Tally:
+    """Running note counts, from which precision, recall and F-scores follow."""
     matched: int = 0
     estimated: int = 0
     referenced: int = 0
@@ -186,6 +188,7 @@ def grid(args):
 
 def sweep(excerpts, settings, cache_dir=None, progress=False,
           dtype: type[np.float16] | type[np.float32] = np.float16):
+    """Score every setting on every excerpt; returns overall and per-style tallies."""
     totals = {setting: Tally() for setting in settings}
     styles = {}
     from basic_pitch import ICASSP_2022_MODEL_PATH
@@ -212,6 +215,7 @@ def sweep(excerpts, settings, cache_dir=None, progress=False,
 
 
 def report(totals, styles, excerpts, top=15):
+    """Print the top settings by F1, with the shipped defaults' rank for comparison."""
     ranked = sorted(totals.items(), key=lambda item: -item[1].f1)
     place = {setting: rank for rank, (setting, _) in enumerate(ranked, 1)}
     header = f'{"#":>3} {"F1":>6} {"F0.5":>6} {"P":>6} {"R":>6}  setting'
@@ -239,10 +243,12 @@ def report(totals, styles, excerpts, top=15):
 
 
 def numbers(text):
+    """argparse type: '0.3,0.4' -> [0.3, 0.4]."""
     return [float(value) for value in text.split(',')]
 
 
 def flags(text):
+    """argparse type: '1,false' -> [True, False]."""
     return [value.strip().lower() in ('1', 'true', 'yes') for value in text.split(',')]
 
 

@@ -21,6 +21,7 @@ CONNECTIONS = ((0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),(5,9),(9,10),(10,
 
 
 def default_model_path():
+    """~/.cache/inlay/hand_landmarker.task, overridable with $INLAY_CACHE."""
     root = Path(os.environ.get('INLAY_CACHE', Path.home()/'.cache'/'inlay'))
     return root/'hand_landmarker.task'
 
@@ -78,6 +79,7 @@ class HandTracker:
     def detect(self, frame, timestamp):
         """Return hands for a BGR frame. ``timestamp`` is seconds from media start."""
         import mediapipe as mp
+        # MediaPipe video mode rejects repeated timestamps, so force them to increase.
         milliseconds = max(int(round(timestamp * 1000)), self.last_ms + 1)
         self.last_ms = milliseconds
         image = mp.Image(image_format=mp.ImageFormat.SRGB,
@@ -86,6 +88,7 @@ class HandTracker:
         height, width = frame.shape[:2]
         hands = []
         for index, landmarks in enumerate(result.hand_landmarks):
+            # MediaPipe returns 21 landmarks in 0..1; scale them to pixels.
             points = np.array([[lm.x*width, lm.y*height] for lm in landmarks], np.float32)
             handedness = result.handedness[index][0] if index < len(result.handedness) else None
             hands.append(Hand(points, getattr(handedness, 'category_name', 'Unknown'),

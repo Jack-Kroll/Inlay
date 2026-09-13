@@ -1,131 +1,97 @@
-# inlay
+# Inlay
 
-A guitar app prototype for turning recorded playing into musical observations.
-The current implementation is a Python fretboard detector and diagnostic preview;
-the planned mobile client uses React Native and TypeScript.
+Inlay turns a recorded guitar performance into an annotated video and structured
+tablature data. It combines a custom fretboard detector, fingertip tracking, and
+audio pitch detection.
 
-**Available:** trainable dense fretboard model, partial-label supervision,
-occlusion augmentation, motion-supported tracking, video/JSONL
-diagnostics, held-out pixel evaluation, and offline tab transcription combining
-pitch detection with fretting-hand tracking. Live transcription and the mobile
-app are still to build. Audio pitch and blind string assignment have been measured on GuitarSet;
-end-to-end transcription and camera accuracy remain unmeasured.
+This is a Python research prototype. Offline transcription works; live
+transcription, a mobile app, and validated end-to-end accuracy are future work.
 
-## Get started
+## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.11. From the project root:
+Requires Python 3.11 and [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv sync --locked
-uv run python -m unittest discover -s tests -v
 ```
 
-Pitch-decoder/scoring tests require `uv sync --locked --extra transcribe`; they
-are skipped with the base install. For VS Code, select `.venv/bin/python` as the
-Python interpreter. The project includes a basic Pyright configuration.
+Local datasets, clips, runs, and model weights are gitignored. The commands below
+expect the trained checkpoint at `runs/dense/fretboard-v1/best.pt`.
 
-## Train the detector
+## Preview the fretboard
 
-The local dataset is useful for bootstrapping but needs more independent guitars,
-recording sessions, negatives and real occlusion examples. Read the
-[dataset audit and recommended additions](docs/dataset-review.md).
+```sh
+uv run python -m processing.vision.preview
+```
+
+This opens camera `0` with the best checkpoint and Apple MPS. Use `q` to quit,
+`r` to reset, or `m` to toggle mirroring. For a recording or diagnostic maps:
+
+```sh
+uv run python -m processing.vision.preview \
+  --source "clips/Blackbird.mov" --show-heatmaps
+```
+
+## Transcribe a recording
+
+```sh
+uv run python -m processing.music.transcribe \
+  --video "clips/Blackbird.mov"
+```
+
+Results go to `runs/transcribe/blackbird/` by default:
+
+- `Blackbird.overlay.mp4`: video with fret, string, fingertip, and note overlays.
+- `Blackbird.tab.jsonl`: structured note assignments and diagnostic evidence.
+
+Use `--model`, `--output`, or `--device` to override the defaults.
+
+## How it works
+
+1. `FretboardNet` predicts heatmaps for the neck, fret wires, and nut.
+2. The tracker stabilizes that geometry across short detection gaps.
+3. Spotify Basic Pitch detects sounding pitches and onsets.
+4. MediaPipe locates the fretting-hand fingertips.
+5. Inlay combines pitch, hand position, and guitar constraints to select a
+   `(string, fret)` position for each note.
+
+FretboardNet uses a pretrained ResNet34 encoder with a custom U-Net-style
+decoder, output heads, loss, training loop, and inference pipeline.
+
+## Train and test
 
 ```sh
 uv run python -m processing.training.train \
   --data data/fretboard.json --output runs/dense/fretboard-v1 \
   --epochs 150 --imgsz 768 --batch 1 --accumulate 16 --device mps
+
+uv run python -m unittest discover -s tests -v
+uv run pyright
 ```
 
-The model uses a pretrained ResNet34 encoder and predicts neck, metal fret lines,
-and nut, without depending on decorative markers. Training produces
-`runs/dense/fretboard-v1/best.pt`. The first normal run downloads official ImageNet
-encoder weights; it does not start with a pretrained guitar detector.
+See [model training](docs/models.md), [architecture](docs/architecture.md), and
+[verification](docs/verification.md) for details.
 
-For CUDA use `--device cuda` and increase batch size if memory permits.
-See [model commands](docs/models.md) for resume and evaluation.
+## Current results and limits
 
-## Preview after training
+- Basic Pitch tuning reached `.779` F1 on held-out GuitarSet excerpts.
+- Blind string assignment with perfect reference pitches reached `.698` accuracy.
+- Complete audio/video transcription accuracy has not been measured.
+- Strings are interpolated rather than detected.
+- Capos, bends, slides, barre chords, and alternate tunings are not inferred.
 
-```sh
-uv run python -m processing.vision.preview \
-  --model runs/dense/fretboard-v1/best.pt --source 0 \
-  --device mps --show-heatmaps
-```
+More detail is available in [transcription](docs/transcription.md),
+[pitch tuning](docs/pitch-tuning.md), [tab logic](docs/tab-logic.md), and the
+[dataset review](docs/dataset-review.md).
 
-Use **q** to quit, **r** to reset. Replace `0` with a video path for repeatable
-checks. Heatmaps show each model output; the overlay distinguishes measurements
-from short-term tracking and reports unknown fret numbering. Board detection can
-continue without a visible nut, but absolute numbering needs sufficient evidence.
-String positions and played notes are not inferred by this model.
+## Code layout
 
-**macOS camera access:** allow the initial prompt, then rerun if needed. If denied,
-enable the terminal/app in **System Settings → Privacy & Security → Camera**.
-Restart that app after changing permissions and close other camera applications.
+- `processing/vision`: fretboard model, decoding, tracking, and preview.
+- `processing/music`: pitch, fingertips, tab assignment, and transcription.
+- `processing/training`: dense-model dataset, training, and evaluation.
+- `processing/tools`: GuitarSet evaluation and tuning utilities.
+- `packages/music`: timed-note JSON contract for a future editor.
+- `tests`: unit and integration tests.
 
-## Transcribe a recording to tab
-
-```sh
-uv sync --locked --extra transcribe
-uv run --extra transcribe python -m processing.music.transcribe \
-  --model runs/dense/fretboard-v1/best.pt \
-  --video clips/take-4.mov --output runs/transcribe/take-4 \
-  --device mps --progress
-```
-
-This writes an annotated video and a JSONL note list. Sounding pitch comes from
-Spotify Basic Pitch, fret geometry from the dense detector, and fingertip
-positions from MediaPipe; the three are combined into `(string, fret)` per note.
-Every note reports how well the hand actually supported it, and unexplained
-fingers are listed rather than hidden. Strings are interpolated across the board,
-not detected, and standard tuning is assumed unless `--tuning` says otherwise.
-It runs on a recording because Basic Pitch reads a whole soundtrack.
-
-The audio thresholds are tuned against GuitarSet rather than guessed: F1 .779 on
-held-out annotated guitar, up from .740 at Basic Pitch's own defaults. See
-[pitch tuning](docs/pitch-tuning.md) for the sweep,
-[tab logic](docs/tab-logic.md) for the string-choice measurement, and
-[tab transcription](docs/transcription.md) for the geometry, the scoring and the
-list of things it cannot do.
-
-Local datasets and weights are not included in source control. Preserve dataset
-attribution files when sharing them. There is no shared artifact download yet.
-
-## Where to work
-
-| Location | Responsibility |
-|---|---|
-| `processing/vision/model.py` | Dense model, loss, preprocessing and inference |
-| `processing/vision/tracker.py` | Wire geometry, conservative numbering and tracker |
-| `processing/vision/preview.py` | Camera/video diagnostics and timestamped JSONL |
-| `processing/training/data.py` | Manifest validation, targets and augmentation |
-| `processing/training/train.py` | Training and checkpoint resume |
-| `processing/training/evaluate.py` | Clean and synthetic-occlusion pixel evaluation |
-| `processing/music/fretboard.py` | Image to (fret, string) board coordinates |
-| `processing/music/fusion.py` | Pitch plus hand evidence to tab positions; neck-position planning |
-| `processing/music/transcribe.py` | Offline transcription CLI and overlay |
-| `processing/music/hands.py` | MediaPipe fingertips; `pitch.py` Basic Pitch |
-| `processing/tools/tune_pitch.py` | Basic Pitch settings swept against GuitarSet |
-| `processing/tools/eval_tab.py` | String choice scored against GuitarSet |
-| `processing/tools/rescue_bound.py` | Ceiling for a visual-candidate note rescue |
-| `packages/music` | Versioned timed-note contract for the future app |
-| `tests` | Geometry, data, model, tracker and compatibility checks |
-
-Keep processing coordinates independent of display transforms. Agree on changes
-to `packages/music/performance.schema.json` before integrating musical features.
-Run tests before sharing changes. Commit `pyproject.toml`, `uv.lock`, and
-`.python-version` together when changing dependencies. Keep `.venv`, data, runs
-and model binaries out of source control.
-
-See [architecture and limitations](docs/architecture.md).
-
-## License and third-party material
-
-This project's own source is MIT licensed; see [LICENSE](LICENSE).
-
-Third-party datasets are not covered by that licence and are not redistributed
-here:
-
-- **Datasets and weights are yours to supply.** `data/`, `clips/`, `runs/` and
-  `*.pt` are gitignored deliberately. The local visual dataset came from
-  Roboflow under CC BY 4.0. GuitarSet (Zenodo record 3371780) is also CC BY 4.0;
-  preserve attribution when sharing either dataset.
+Inlay source code is available under the [MIT License](LICENSE). Local visual
+data and GuitarSet are CC BY 4.0 and require their own attribution.

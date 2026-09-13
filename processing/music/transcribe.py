@@ -14,6 +14,7 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
+import re
 import subprocess
 import shutil
 import tempfile
@@ -23,6 +24,7 @@ import numpy as np
 
 from processing.vision.preview import draw_text, draw_observation, open_capture
 from processing.vision.tracker import FretboardTracker, decode_maps, transform_observation
+from processing.vision import DEFAULT_MODEL
 from .fretboard import DEFAULT_STRING_INSET, board_transform
 from .fusion import (assign_positions, finger_contacts, hand_position, plan_positions,
                      unexplained_contacts)
@@ -30,14 +32,23 @@ from .hands import CONNECTIONS, HandTracker, fretting_hand
 from .pitch import notes_from_media
 from .tuning import STANDARD_TUNING, note_name, validate_tuning
 
+# Overlay colour (BGR) for each kind of evidence behind a note's placement.
 SUPPORT_COLORS = {'rescued': (255, 130, 240), 'fingered': (120, 255, 120), 'open': (255, 210, 120),
                   'position-only': (80, 190, 255), 'no-hand': (150, 150, 150),
                   'no-board': (150, 150, 150), 'none': (150, 150, 150)}
+# Onsets closer together than this (seconds) are treated as one chord.
 CHORD_WINDOW = .05
+
+
+def default_output_directory(video: Path) -> Path:
+    """Put each recording in a stable, shell-friendly transcription folder."""
+    slug = re.sub(r'[^a-z0-9]+', '-', video.stem.lower()).strip('-')
+    return Path('runs/transcribe') / (slug or 'transcription')
 
 
 @dataclass
 class FrameRecord:
+    """What the vision pass saw in one video frame, kept for the audio stage."""
     index: int
     timestamp: float
     state: str
@@ -100,8 +111,10 @@ def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=N
     planned = plan_positions(groups, [hand_position(contacts)
                                       for _, _, _, contacts in evidence],
                              tuning, max_fret)
+    # Pass three: pick a (string, fret) for every note in each chord, given the
+    # fingertips seen and the planned neck position.
     assignments, per_group = {}, []
-    sounding = []
+    sounding = []  # Notes still ringing, which a new pluck on their string cuts off.
     for group, (record, transform, hand, contacts), position in zip(
             groups, evidence, planned):
         sounding = [note for note in sounding if note.end > group[0].start]
@@ -117,12 +130,18 @@ def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=N
 
 
 def _hand_from(record):
+    """Rebuild a Hand from the landmark points stored on a frame record."""
     from .hands import Hand
     return Hand(record.hand_points, record.hand_label, 1.)
 
 
 def fingered_rate(per_group):
-    """Only direct fingertip support distinguishes the two string orders."""
+    """Fraction of fretted notes that landed under an actual fingertip.
+
+    Geometry can't tell which end of a fret wire is string 1. Transcribing both
+    ways and keeping the one where more notes line up with a finger decides it;
+    only direct fingertip support distinguishes the two orders.
+    """
     fingered = sum(1 for _, _, results in per_group for n in results if n.support == 'fingered')
     total = sum(1 for _, _, results in per_group for n in results if n.fret)
     return fingered / total if total else 0.
@@ -151,6 +170,7 @@ def analyse(video, model, device, args):
                 inference = (time.perf_counter()-start)*1000
                 observation = tracker.update(frame, decode_maps(maps, args.threshold), timestamp)
                 hands = tracker_hands.detect(frame, timestamp)
+                # Of the detected hands, keep the one actually on the neck.
                 chosen = fretting_hand(hands, observation)
                 records.append(FrameRecord(
                     index, timestamp, tracker.state, observation,
@@ -167,6 +187,7 @@ def analyse(video, model, device, args):
 
 
 def mirror_points(points, width, mirror):
+    """Flip x coordinates horizontally when ``mirror`` is set."""
     points = np.asarray(points, float)
     if not mirror:
         return points
@@ -189,6 +210,7 @@ def draw_strings(frame, transform, max_fret, strings=6, mirror=False):
 
 
 def draw_hand(frame, points, contacts=None):
+    """Hand skeleton, plus a labelled ring on each fingertip contact (green = on board)."""
     for a, b in CONNECTIONS:
         cv2.line(frame, tuple(points[a].astype(int)), tuple(points[b].astype(int)), (200, 120, 200), 1, cv2.LINE_AA)
     for point in points:
@@ -201,6 +223,7 @@ def draw_hand(frame, points, contacts=None):
 
 def draw_tab_strip(frame, active, history, timestamp, window=4., strings=6,
                    tuning=None):
+    """Scrolling tab along the bottom: the last ``window`` seconds of notes."""
     if tuning is not None:
         strings = len(tuning)
     height, width = frame.shape[:2]
@@ -213,6 +236,7 @@ def draw_tab_strip(frame, active, history, timestamp, window=4., strings=6,
         label = note_name(tuning[string]) if tuning is not None else str(string+1)
         draw_text(frame, label, (10, y+4), .42, (140, 140, 150))
     draw_text(frame, f'last {window:.0f}s', (10, top-24), .4, (140, 140, 150))
+    # Each note is its fret number, placed on its string line at its onset time.
     for note in history:
         if not (timestamp-window <= note.start <= timestamp) or note.string is None:
             continue
@@ -236,6 +260,8 @@ def render(video, records, assignments, args, fps, transform_kwargs, output):
                 break
             display = cv2.flip(frame, 1) if args.mirror else frame.copy()
             matrix = np.array([[-1., 0., frame.shape[1]-1.], [0., 1., 0.], [0., 0., 1.]])
+            # Geometry is always computed in raw (unmirrored) coordinates;
+            # mirroring is applied to the drawn points only.
             observation = record.observation
             transform = None
             if observation is not None:
@@ -258,6 +284,7 @@ def render(video, records, assignments, args, fps, transform_kwargs, output):
                                and np.allclose(points, record.hand_points))
                 draw_hand(display, shown_points,
                           _mirror_contacts(contacts, frame.shape[1], args.mirror) if is_fretting else None)
+            # Notes sounding at this frame.
             active = [n for n in ordered if n.start <= record.timestamp < n.end]
             draw_tab_strip(display, active, ordered, record.timestamp, tuning=args.tuning)
             _draw_hud(display, record, transform, active, contacts, args)
@@ -288,6 +315,7 @@ def _mirror_contacts(contacts, width, mirror):
 
 
 def _draw_hud(frame, record, transform, active, contacts, args):
+    """Status text in the top-left: tracker state, active notes, stray fingers."""
     numbering = record.observation.numbering if record.observation is not None else 'no board'
     board = 'none' if transform is None else f'{transform.anchors} anchors'
     draw_text(frame, f'{record.index:5d}  t={record.timestamp:6.2f}s  {record.state}  '
@@ -310,6 +338,7 @@ def _draw_hud(frame, record, transform, active, contacts, args):
 
 
 def write_jsonl(path, assignments, summary):
+    """One summary line, then one line per note in time order."""
     ordered = sorted(assignments.values(), key=lambda n: n.start)
     with path.open('w') as handle:
         handle.write(json.dumps({'kind': 'summary', **summary})+'\n')
@@ -339,11 +368,13 @@ def mux_audio(video, audio, destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--model', required=True, type=Path, help='Dense fretboard checkpoint')
+    parser.add_argument('--model', type=Path, default=DEFAULT_MODEL,
+                        help=f'Dense fretboard checkpoint (default: {DEFAULT_MODEL})')
     parser.add_argument('--video', required=True, type=Path, help='Recorded clip with audio')
-    parser.add_argument('--output', required=True, type=Path, help='Directory for overlay and JSONL')
+    parser.add_argument('--output', type=Path,
+                        help='Output directory (default: runs/transcribe/<video-name>)')
     parser.add_argument('--audio', type=Path, help='Use this audio instead of the video soundtrack')
-    parser.add_argument('--device', default='auto')
+    parser.add_argument('--device', default='mps', help='Compute device (default: mps)')
     parser.add_argument('--imgsz', type=int)
     parser.add_argument('--threshold', type=float, default=.5)
     parser.add_argument('--max-gap', type=float, default=.5)
@@ -370,6 +401,8 @@ def main():
     parser.add_argument('--max-frames', type=int)
     parser.add_argument('--progress', action='store_true')
     args = parser.parse_args()
+    if args.output is None:
+        args.output = default_output_directory(args.video)
     if not 0 < args.threshold < 1 or not 0 <= args.inset < .5 or args.max_fret < 1:
         parser.error('Invalid threshold, inset or max-fret')
     if args.hands < 1 or (args.max_frames is not None and args.max_frames < 1):
@@ -394,6 +427,8 @@ def main():
     print(f'Transcribing {args.video} -> {args.output}/{args.video.stem}.*', flush=True)
     print('Detecting pitch...', flush=True)
     with tempfile.TemporaryDirectory() as workdir:
+        # --- Step 1: audio -> notes. Only listen for pitches this guitar can
+        # play, from the lowest open string up to the highest string's top fret.
         notes, activations, audio_path = notes_from_media(
             args.video, args.audio, workdir, onset_threshold=args.onset_threshold,
             frame_threshold=args.frame_threshold, minimum_note_length=args.min_note_ms,
@@ -402,15 +437,20 @@ def main():
             # Use the next semitone so odd/even top pitches are both retained.
             maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12))
         print(f'  {len(notes)} note events', flush=True)
+
+        # --- Step 2: video -> fretboard geometry and fretting hand per frame.
         print('Detecting fretboard and hands...', flush=True)
         records, fps = analyse(args.video, args.model, device, args)
         print(f'  {len(records)} frames at {fps:.2f} fps', flush=True)
         if not records:
             raise RuntimeError(f'No video frames decoded from {args.video}')
+        # Drop or trim notes that fall outside the decoded video.
         duration = records[-1].timestamp + 1/fps
         notes = [replace(note, end=min(note.end, duration)) for note in notes
                  if 0 <= note.start < duration and note.end > note.start]
 
+        # --- Step 3: notes + vision -> tab. With --string-order auto, transcribe
+        # both ways and keep the order more notes agree with a fingertip.
         options = ([False, True] if args.string_order == 'auto'
                    else [args.string_order == 'flipped'])
         best, args.flipped = None, options[0]
@@ -428,6 +468,8 @@ def main():
         _, assignments, per_group = best
         transform_kwargs = dict(strings=len(tuning), inset=args.inset, flipped=args.flipped)
 
+        # --- Optional step 4: recover quiet notes the audio thresholds dropped,
+        # but only where a steady fingertip sits on the matching fret.
         rescue_report = {'enabled': args.visual_rescue, 'accepted': 0}
         baseline_count = len(notes)
         if args.visual_rescue:
@@ -441,9 +483,11 @@ def main():
                 assignments[len(assignments)] = note
             print(f'  visually rescued {len(rescued)} weak audio notes', flush=True)
 
+        # --- Step 5: diagnostics, then write the JSONL and overlay video.
         counts = {}
         for note in assignments.values():
             counts[note.support] = counts.get(note.support, 0)+1
+        # Fingers on the board that no note explains (hovering, damping, or bad geometry).
         unexplained = []
         for record, contacts, results in per_group:
             if record is None:
@@ -488,6 +532,7 @@ def main():
             print('Rendering overlay...', flush=True)
             silent = args.output/f'{args.video.stem}.overlay.silent.mp4'
             render(args.video, records, assignments, args, fps, transform_kwargs, silent)
+            # OpenCV writes video without sound; ffmpeg copies the audio back on.
             final = args.output/f'{args.video.stem}.overlay.mp4'
             if mux_audio(silent, audio_path, final):
                 silent.unlink(missing_ok=True)

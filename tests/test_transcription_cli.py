@@ -12,7 +12,8 @@ import cv2
 import numpy as np
 
 from processing.music.pitch import NoteEvent, Posteriorgram
-from processing.music.transcribe import FrameRecord, main, mux_audio
+from processing.music.transcribe import (DEFAULT_MODEL, FrameRecord,
+                                         default_output_directory, main, mux_audio)
 
 
 @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg is required for audio mux integration')
@@ -52,6 +53,29 @@ class AudioMuxTests(unittest.TestCase):
 
 
 class TranscriptionCliTests(unittest.TestCase):
+    def test_minimal_command_uses_project_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            activations = Posteriorgram(np.zeros((1, 88)), np.zeros((1, 88)), np.zeros(1))
+            argv = ['transcribe', '--video', 'My Song.mov', '--no-video']
+            with patch('sys.argv', argv), patch('builtins.print'), \
+                    patch('processing.music.transcribe.default_output_directory',
+                          return_value=root), \
+                    patch('processing.music.transcribe.notes_from_media',
+                          return_value=([], activations, root/'audio.wav')), \
+                    patch('processing.music.transcribe.analyse',
+                          return_value=([FrameRecord(0, 0, 'lost')], 30.)) as analyse, \
+                    patch('processing.training.train.select_device',
+                          return_value='mps') as select_device:
+                main()
+            select_device.assert_called_once_with('mps')
+            self.assertEqual(analyse.call_args.args[1], DEFAULT_MODEL)
+            self.assertTrue((root/'My Song.tab.jsonl').is_file())
+
+    def test_default_output_directory_is_shell_friendly(self):
+        self.assertEqual(default_output_directory(Path('clips/Sweet Child O Mine.mov')),
+                         Path('runs/transcribe/sweet-child-o-mine'))
+
     def run_cli(self, root, records, max_fret=22):
         argv = ['transcribe', '--model', 'unused.pt', '--video', 'take.mov',
                 '--output', str(root), '--device', 'cpu', '--no-video',

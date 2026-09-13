@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import numpy as np
 
+from processing.vision import DEFAULT_MODEL
 from processing.vision.preview import (
     LatestCameraFrame, display_observation, render_preview, main,
 )
@@ -93,9 +94,10 @@ class PreviewDisplayTests(unittest.TestCase):
         capture.read.side_effect = [(True, f) for f in frames] + [(False, None)]
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)/'preview.jsonl'
-            with patch('sys.argv', ['preview', '--model', 'unused.pt', '--source', 'clip.avi', '--device', 'cpu', '--headless', '--jsonl', str(output)]), \
+            with patch('sys.argv', ['preview', '--source', 'clip.avi', '--headless', '--jsonl', str(output)]), \
                     patch('processing.vision.preview.open_capture', return_value=capture), \
                     patch('processing.vision.model.DenseDetector') as detector, \
+                    patch('processing.training.train.select_device', return_value='mps') as select_device, \
                     patch('processing.vision.preview.FretboardTracker') as tracker, \
                     patch('processing.vision.preview.decode_maps', return_value=observation()), \
                     patch('processing.vision.preview.LatestCameraFrame') as camera:
@@ -108,6 +110,7 @@ class PreviewDisplayTests(unittest.TestCase):
         self.assertEqual([r['timestamp'] for r in rows], [0., .1, .2])
         self.assertEqual([r['capture_frame'] for r in rows], [0, 1, 2])
         self.assertEqual(rows[0]['frets'][0]['endpoints'], [[7., 3.], [7., 12.]])
+        select_device.assert_called_once_with('mps')
+        detector.assert_called_once_with(DEFAULT_MODEL, 'mps', None)
         camera.assert_not_called()
         capture.release.assert_called_once()
-

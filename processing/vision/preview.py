@@ -1,4 +1,8 @@
-"""Dense fretboard diagnostics: observations, heatmaps, tracking state and JSONL."""
+"""Live fretboard preview: run the detector on a camera or video and draw the result.
+
+Per frame: model heatmaps -> ``decode_maps`` geometry -> ``FretboardTracker``
+smoothing -> overlay window (and optionally one JSONL record per frame).
+"""
 from collections import deque
 import threading
 import argparse
@@ -8,6 +12,7 @@ import sys
 import time
 import cv2
 import numpy as np
+from . import DEFAULT_MODEL
 from .tracker import FretboardTracker, decode_maps, transform_observation
 from processing.music.fretboard import board_transform, DEFAULT_STRING_INSET
 
@@ -32,6 +37,7 @@ def open_capture(source):
 
 
 def draw_text(frame, text, xy, scale=0.55, color=(255, 255, 255), thickness=1):
+    """Text with a black outline, readable on any background."""
     x, y = int(xy[0]), int(xy[1])
     cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX,
                 scale, (0, 0, 0), thickness + 2, cv2.LINE_AA)
@@ -39,10 +45,12 @@ def draw_text(frame, text, xy, scale=0.55, color=(255, 255, 255), thickness=1):
                 scale, color, thickness, cv2.LINE_AA)
 
 
-
-
 class LatestCameraFrame:
     """Drain the live camera continuously; inference consumes the newest frame.
+
+    Inference is slower than the camera, so reading frames in order would fall
+    further and further behind. A background thread keeps only the latest frame
+    and drops the rest, so the preview stays live.
 
     Video files remain synchronous so recorded-frame evaluation skips nothing.
     The worker owns capture.release(), avoiding concurrent read/release calls.
@@ -79,6 +87,7 @@ class LatestCameraFrame:
                 self.condition.notify_all()
 
     def read(self, timeout=3.0):
+        """Wait for a frame newer than the last one read; None when the camera stops."""
         with self.condition:
             self.condition.wait_for(
                 lambda: self.latest is not None or self.finished or self.stop.is_set(),
@@ -100,11 +109,16 @@ def display_observation(observation, width, mirrored):
     """Return display coordinates without changing tracker/JSONL coordinates."""
     if observation is None or not mirrored:
         return observation
+    # Homography for a horizontal flip: x -> width - 1 - x.
     matrix = np.array([[-1., 0., width-1.], [0., 1., 0.], [0., 0., 1.]])
     return transform_observation(observation, matrix)
 
 
 def draw_observation(frame, observation, state):
+    """Draw the neck outline, fret wires (with numbers), estimated frets and nut.
+
+    Green/blue = detected this frame, orange = tracked or estimated, magenta = nut.
+    """
     if observation is None:
         return
     color = (0, 210, 0) if state == 'detected' else (0, 180, 255)
@@ -126,6 +140,7 @@ def draw_observation(frame, observation, state):
 
 
 def estimated_string_paths(observation, inset=DEFAULT_STRING_INSET):
+    """Six interpolated string lines (image points), or [] if the board can't be fitted."""
     if observation is None:
         return []
     transform = board_transform(observation, inset=inset)
@@ -138,6 +153,7 @@ def estimated_string_paths(observation, inset=DEFAULT_STRING_INSET):
 
 def render_preview(frame, observation, state, mirrored=True, show_strings=False,
                    inset=DEFAULT_STRING_INSET):
+    """Return a copy of the frame with the overlay drawn (mirrored for display only)."""
     display = cv2.flip(frame, 1) if mirrored else frame.copy()
     draw_observation(display, display_observation(observation, frame.shape[1], mirrored), state)
     if show_strings:
@@ -161,9 +177,10 @@ def render_preview(frame, observation, state, mirrored=True, show_strings=False,
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--model', required=True, type=Path)
-    ap.add_argument('--source', default='0')
-    ap.add_argument('--device', default='auto')
+    ap.add_argument('--model', type=Path, default=DEFAULT_MODEL,
+                    help=f'Dense fretboard checkpoint (default: {DEFAULT_MODEL})')
+    ap.add_argument('--source', default='0', help='Camera index or video path (default: 0)')
+    ap.add_argument('--device', default='mps', help='Compute device (default: mps)')
     ap.add_argument('--imgsz', type=int, help='Inference size; default keeps the trained size. Try 640 for extra speed.')
     ap.add_argument('--threshold', type=float, default=.5)
     ap.add_argument('--max-gap', type=float, default=.5)
@@ -184,6 +201,8 @@ def main():
             or not np.isfinite(args.heatmap_fps) or args.heatmap_fps <= 0
             or (args.max_frames is not None and args.max_frames < 1)):
         ap.error('Invalid threshold, max-gap, heatmap-fps or max-frames')
+
+    # Heavy imports are deferred so --help and argument errors stay fast.
     from .model import DenseDetector
     from processing.training.train import select_device
     detector = DenseDetector(args.model, select_device(args.device), args.imgsz)
@@ -210,6 +229,7 @@ def main():
         recent_frames = deque(maxlen=30)
         last_heatmap = -float('inf')
         while True:
+            # --- Grab a frame (latest from a camera, next from a file) ---
             if camera is not None:
                 packet = camera.read()
                 if packet is None:
@@ -220,6 +240,8 @@ def main():
                 if not ok:
                     break
                 capture_index, timestamp = index, index/fps
+
+            # --- Detect, decode and track, timing each stage ---
             t0 = time.perf_counter()
             recent_frames.append(t0)
             actual_fps = ((len(recent_frames)-1)/(recent_frames[-1]-recent_frames[0])
@@ -231,6 +253,8 @@ def main():
             observation = tracker.update(frame, detected, timestamp)
             t3 = time.perf_counter()
             latency = (t3-t0)*1000
+
+            # --- One diagnostic record per frame ---
             record = {
                 'frame': index, 'capture_frame': capture_index, 'timestamp': timestamp,
                 'state': tracker.state, 'latency_ms': latency, 'fps': actual_fps,
@@ -251,11 +275,14 @@ def main():
             }
             if output:
                 output.write(json.dumps(record)+'\n')
+
+            # --- Draw the window and handle keys ---
             if not args.headless:
                 display = render_preview(frame, observation, tracker.state, args.mirror, args.show_strings, args.inset)
                 fps_text = f'{actual_fps:.1f} FPS' if actual_fps is not None else 'warming up'
                 draw_text(display, f'{tracker.state} | {fps_text} | {latency:.0f} ms | numbering: {record["numbering"]}', (15, 25))
                 draw_text(display, 'Blue: detected | Orange: estimated (~)', (15, 47), .45)
+                # Heatmap windows are throttled; imshow on three extra windows is slow.
                 if args.show_heatmaps and t3-last_heatmap >= 1/args.heatmap_fps:
                     scale = min(1., 480/maps.shape[1])
                     small = cv2.resize(maps, (max(1, round(maps.shape[1]*scale)),
@@ -291,5 +318,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 

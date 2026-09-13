@@ -22,6 +22,7 @@ MAX_FREQUENCY = 1400.
 
 @dataclass(frozen=True)
 class NoteEvent:
+    """One note from Basic Pitch: times in seconds, MIDI pitch, and loudness 0..1."""
     start: float
     end: float
     pitch: int
@@ -76,6 +77,7 @@ class Posteriorgram:
         frames = min(len(self.times), self.note.shape[0])
         if frames <= 0 or end < start:
             return None
+        # Convert the time window to a frame range (at least one frame long).
         first = min(max(int(np.searchsorted(self.times, start)), 0), frames - 1)
         last = min(max(int(np.searchsorted(self.times, end)), first + 1), frames)
         if last <= first:
@@ -142,6 +144,7 @@ def detect_notes(audio, onset_threshold=.6, frame_threshold=.45, minimum_note_le
                                         maximum_frequency=maximum_frequency)
     finally:
         logging.disable(level)
+    # Each event is (start, end, pitch, amplitude, pitch_bends).
     notes = [NoteEvent(float(s), float(e), int(p), float(a)) for s, e, p, a, *_ in events]
     activations = Posteriorgram(
         note=np.asarray(output['note'], dtype=np.float32),

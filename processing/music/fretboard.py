@@ -55,6 +55,7 @@ def _intersect(centre, direction, edge):
 
 
 def _point_line_distance(points, edge):
+    """Perpendicular pixel distance from each point to an (origin, direction) line."""
     origin, along = edge
     delta = np.asarray(points, float) - origin
     return np.abs(delta[:, 0]*along[1] - delta[:, 1]*along[0])
@@ -65,6 +66,10 @@ def _endpoint_edge(points, across, side, width):
 
     Outer outliers are penalized, rather than blindly taking a convex hull.
     If all wires end short consistently, their true width is unknowable here.
+
+    ``points`` are the wire endpoints on one side of the neck. Each pair of
+    endpoints proposes an edge line (a RANSAC-style search); the proposal
+    touching the most endpoints, with few poking outside it, wins.
     """
     tolerance = max(1., width * .035)
     best = None
@@ -80,8 +85,9 @@ def _endpoint_edge(points, across, side, width):
             if normal @ across < 0:
                 normal = -normal
             signed = (points - points[i]) @ normal
-            support = np.abs(signed) <= tolerance
-            outside = signed < -tolerance if side == 0 else signed > tolerance
+            support = np.abs(signed) <= tolerance  # Endpoints on this line.
+            outside = signed < -tolerance if side == 0 else signed > tolerance  # Past it.
+            # Wires that end short (occluded) are harmless; ones past the edge are not.
             score = support.sum() - 2 * outside.sum()
             if support.sum() >= MIN_ANCHORS and score > best_score:
                 best_score = score
@@ -102,10 +108,12 @@ class BoardTransform:
     edge_residual: float = 0.
 
     def to_board(self, points):
+        """Image pixels -> (ratio, across) board coordinates."""
         points = np.asarray(points, np.float32).reshape(-1, 1, 2)
         return cv2.perspectiveTransform(points, self.matrix.astype(np.float32)).reshape(-1, 2)
 
     def to_image(self, board):
+        """(ratio, across) board coordinates -> image pixels."""
         board = np.asarray(board, np.float32).reshape(-1, 1, 2)
         return cv2.perspectiveTransform(board, self.inverse.astype(np.float32)).reshape(-1, 2)
 
@@ -119,6 +127,7 @@ class BoardTransform:
         """
         board = self.to_board(points)
         fret = ratio_to_fret(board[:, 0])
+        # Strings are spread evenly between the two inset edges of the board.
         span = 1 - 2 * self.inset
         string = (1 + (board[:, 1] - .5) / span if self.strings == 1 else
                   1 + (board[:, 1] - self.inset) / span * (self.strings - 1))
@@ -133,6 +142,7 @@ class BoardTransform:
         return self.to_image([[ratio, across]])[0]
 
     def string_polyline(self, string, max_fret=22, samples=24):
+        """Image points tracing one string from the nut to ``max_fret``, for drawing."""
         frets = np.linspace(0, max_fret, samples)
         across = (.5 if self.strings == 1 else
                   self.inset + (string - 1) / (self.strings - 1) * (1 - 2 * self.inset))
@@ -161,9 +171,14 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     Only measured wires and the nut are used. Interpolated estimates are
     consistent with the numbering fit by construction, so including them would
     add apparent support without adding evidence.
+
+    Steps: collect numbered wires, find the neck direction, fit the two outer
+    edges from the wire endpoints, extend every wire to those edges, then fit a
+    homography from those endpoints to known board coordinates.
     """
     if not 1 <= strings <= 12 or not 0 <= inset < .5:
         raise ValueError('Invalid string count or inset')
+    # Known wires by fret number (nut = 0).
     anchors = {}
     if observation.nut is not None:
         anchors[0] = np.asarray(observation.nut, float)
@@ -177,6 +192,7 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     if not np.isfinite(raw).all():
         return None
     lines = raw
+    # Neck direction = the main axis the wire centres line up along.
     centres = lines.mean(axis=1)
     _, _, vectors = np.linalg.svd(centres - centres.mean(0), full_matrices=False)
     along = vectors[0]
@@ -196,9 +212,12 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
                   for side in (0, 1))
     if any(edge is None for edge in edges):
         return None
+    # How far the best-fitting endpoints sit from their edge, as a fraction of width.
     edge_residual = float(max(np.median(np.sort(
         _point_line_distance(ordered[:, side], edges[side]))[:MIN_ANCHORS])
         for side in (0, 1)) / width)
+    # Extend each wire until it meets both edges, so every wire spans the full
+    # board width even if part of it was hidden.
     refined, kept = [], []
     for number, line in zip(numbers, lines):
         centre, direction = line.mean(0), line[1]-line[0]
@@ -213,6 +232,7 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     if len(kept) < MIN_ANCHORS:
         return None
     numbers = kept
+    # Point correspondences: wire n's two ends map to (ratio(n), 0) and (ratio(n), 1).
     source = np.array(refined, np.float32).reshape(-1, 2)
     ratios = np.repeat(fret_ratio(np.array(numbers, float)), 2)
     ends = np.tile([0., 1.], len(numbers))
@@ -223,6 +243,7 @@ def board_transform(observation, strings=6, inset=DEFAULT_STRING_INSET, flipped=
     ok, inverse = cv2.invert(matrix)
     if not ok or not np.isfinite(inverse).all():
         return None
+    # Reject the fit if the wires don't actually line up with the model.
     reprojected = cv2.perspectiveTransform(source.reshape(-1, 1, 2), matrix).reshape(-1, 2)
     residual = float(np.abs(reprojected - target).max())
     if not np.isfinite(residual) or residual > max_residual:

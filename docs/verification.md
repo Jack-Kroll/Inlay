@@ -19,7 +19,7 @@ decoding, tab constraints, rendering, audio muxing, custom tunings, and visual
 rescue.
 
 ```sh
-uv run --extra transcribe python -m unittest discover -s tests -v
+uv run python -m unittest discover -s tests -v
 ```
 
 ## Runtime checks
@@ -35,7 +35,7 @@ uv run --extra transcribe python -m unittest discover -s tests -v
 
 - Basic Pitch held-out GuitarSet F1: `.779`.
 - Blind string assignment with perfect pitches: `.698` overall.
-- Unit and integration suite: 130 tests.
+- Unit and integration suite: 120 tests.
 
 ## Not established
 
