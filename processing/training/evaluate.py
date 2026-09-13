@@ -76,7 +76,7 @@ def main():
     args.output.write_text(json.dumps({'manifest_sha256':manifest_digest(args.data),'model':str(args.model.resolve()),
         'split':args.split,'images':len(records),'threshold':args.threshold,'image_size':detector.size,
         'tolerance_px':max(1,round(detector.size/256)),'metrics':summary,'detections':outputs,
-        'limitations':['OBB-derived neck masks are coarse labels, not exact segmentation.',
+        'limitations':['Source neck annotations are coarse labels, not exact segmentation.',
                       'Synthetic covers are not a real-hand occlusion benchmark.',
                       'Absolute fret numbering accuracy is unmeasured: current data has no fret-number labels.',
                       'Verify guitar/session holdouts before making generalization claims.']},indent=2)+'\n')

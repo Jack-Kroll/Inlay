@@ -145,7 +145,8 @@ def rescue(activations, proposals, estimated, gate, tolerance=tune_pitch.ONSET_T
     return recovered
 
 
-def load(excerpt, cache_dir, setting, dtype):
+def load(excerpt, cache_dir, setting,
+         dtype: type[np.float16] | type[np.float32]):
     """Posteriorgram and baseline estimate for one excerpt."""
     cache = cache_dir/f'{excerpt.name}.npz' if cache_dir else None
     model = None
@@ -163,7 +164,9 @@ def load(excerpt, cache_dir, setting, dtype):
 
 
 def measure(excerpts, gates, setting, cache_dir, visual_error, lead, seed,
-            per_note=0, dtype=np.float16, progress=False):
+            per_note=0,
+            dtype: type[np.float16] | type[np.float32] = np.float16,
+            progress=False):
     """Score the baseline and every gate over the same cached model output."""
     rng = np.random.default_rng(seed)
     totals = {gate.label(): tune_pitch.Tally() for gate in gates}

@@ -121,14 +121,6 @@ def _hand_from(record):
     return Hand(record.hand_points, record.hand_label, 1.)
 
 
-def support_rate(per_group):
-    total = sum(len(results) for _, _, results in per_group)
-    if not total:
-        return 0.
-    return sum(1 for _, _, results in per_group for note in results
-               if note.support in ('fingered', 'open')) / total
-
-
 def fingered_rate(per_group):
     """Only direct fingertip support distinguishes the two string orders."""
     fingered = sum(1 for _, _, results in per_group for n in results if n.support == 'fingered')
@@ -136,7 +128,7 @@ def fingered_rate(per_group):
     return fingered / total if total else 0.
 
 
-def analyse(video, model, device, notes, tuning, args):
+def analyse(video, model, device, args):
     """Pass one: run the detector and hand tracker over every frame."""
     from processing.vision.model import DenseDetector
     detector = DenseDetector(model, device, args.imgsz)
@@ -232,7 +224,7 @@ def draw_tab_strip(frame, active, history, timestamp, window=4., strings=6,
         draw_text(frame, str(note.fret), (x-4, y+4), .46, colour, 1)
 
 
-def render(video, records, assignments, notes, args, fps, transform_kwargs, output):
+def render(video, records, assignments, args, fps, transform_kwargs, output):
     """Pass two: draw overlays onto the original frames."""
     capture = open_capture(str(video))
     writer = None
@@ -317,7 +309,7 @@ def _draw_hud(frame, record, transform, active, contacts, args):
                   (12, y), .42, (80, 190, 255))
 
 
-def write_jsonl(path, records, assignments, args, tuning, summary):
+def write_jsonl(path, assignments, summary):
     ordered = sorted(assignments.values(), key=lambda n: n.start)
     with path.open('w') as handle:
         handle.write(json.dumps({'kind': 'summary', **summary})+'\n')
@@ -411,7 +403,7 @@ def main():
             maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12))
         print(f'  {len(notes)} note events', flush=True)
         print('Detecting fretboard and hands...', flush=True)
-        records, fps = analyse(args.video, args.model, device, notes, tuning, args)
+        records, fps = analyse(args.video, args.model, device, args)
         print(f'  {len(records)} frames at {fps:.2f} fps', flush=True)
         if not records:
             raise RuntimeError(f'No video frames decoded from {args.video}')
@@ -487,7 +479,7 @@ def main():
             ],
         }
         jsonl = args.output/f'{args.video.stem}.tab.jsonl'
-        write_jsonl(jsonl, records, assignments, args, tuning, summary)
+        write_jsonl(jsonl, assignments, summary)
         print(json.dumps({k: v for k, v in summary.items()
                           if k not in ('limitations', 'unexplained_fingers')}, indent=2))
         print(f'Notes: {jsonl}', flush=True)
@@ -495,7 +487,7 @@ def main():
         if args.write_video:
             print('Rendering overlay...', flush=True)
             silent = args.output/f'{args.video.stem}.overlay.silent.mp4'
-            render(args.video, records, assignments, notes, args, fps, transform_kwargs, silent)
+            render(args.video, records, assignments, args, fps, transform_kwargs, silent)
             final = args.output/f'{args.video.stem}.overlay.mp4'
             if mux_audio(silent, audio_path, final):
                 silent.unlink(missing_ok=True)

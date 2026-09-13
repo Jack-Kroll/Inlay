@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 import numpy as np
 from processing.music.pitch import Posteriorgram
@@ -40,8 +41,10 @@ class VisualRescueTests(unittest.TestCase):
         self.assertEqual(report['accepted'],1)
 
     def test_finger_alone_or_wrong_pitch_or_stale_tracking_cannot_rescue(self):
-        for kwargs in ({'onset':.1}, {'energy':.1}, {'contact_pitch':65},
-                       {'state':'tracked'}, {'contact_frames':1}):
+        cases: tuple[dict[str, Any], ...] = (
+            {'onset': .1}, {'energy': .1}, {'contact_pitch': 65},
+            {'state': 'tracked'}, {'contact_frames': 1})
+        for kwargs in cases:
             with self.subTest(kwargs=kwargs):
                 self.assertEqual(self.run_rescue(**kwargs)[0],[])
 

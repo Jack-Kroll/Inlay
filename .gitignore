@@ -7,7 +7,6 @@ node_modules/
 dist/
 .claude/
 runs/
-guitar_obb_dataset/
 *.pt
 *.mlpackage/
 *.mlmodelc/

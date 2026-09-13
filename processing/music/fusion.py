@@ -291,12 +291,3 @@ def unexplained_contacts(contacts, assigned, threshold=SUPPORT_THRESHOLD):
     return [c for c in contacts if c.on_board
             and not any(_string_term(c, s) * _fret_term(c, f) >= threshold
                         for s, f in used)]
-
-
-def orientation_support(frames):
-    """Fraction of notes with direct finger support, used to pick string order."""
-    total = sum(len(notes) for notes in frames)
-    if not total:
-        return 0.
-    good = sum(1 for notes in frames for n in notes if n.support in ('fingered', 'open'))
-    return good / total

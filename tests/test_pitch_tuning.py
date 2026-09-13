@@ -205,6 +205,8 @@ class PosteriorgramTests(unittest.TestCase):
         board.onset[3, column], board.onset[7, column] = .4, .9
         board.note[5, column] = .8
         found = board.evidence(54, 0., .9)
+        self.assertIsNotNone(found)
+        assert found is not None
         self.assertAlmostEqual(found.time, .7)
         self.assertAlmostEqual(found.onset, .9)
         # The frame peak is the window's, not whatever sits under the onset.
@@ -214,8 +216,13 @@ class PosteriorgramTests(unittest.TestCase):
         board = self.build()
         column = 54 - pitch.LOWEST_BIN
         board.onset[8, column] = .9
-        self.assertAlmostEqual(board.evidence(54, 0., .4).onset, 0.)
-        self.assertAlmostEqual(board.evidence(54, .7, .9).onset, .9)
+        early = board.evidence(54, 0., .4)
+        late = board.evidence(54, .7, .9)
+        self.assertIsNotNone(early)
+        self.assertIsNotNone(late)
+        assert early is not None and late is not None
+        self.assertAlmostEqual(early.onset, 0.)
+        self.assertAlmostEqual(late.onset, .9)
 
     def test_pitch_outside_the_model_range_reports_nothing(self):
         """None must not be confused with 'the model saw nothing there'."""

@@ -4,12 +4,11 @@ A guitar app prototype for turning recorded playing into musical observations.
 The current implementation is a Python fretboard detector and diagnostic preview;
 the planned mobile client uses React Native and TypeScript.
 
-**Available:** trainable dense fretboard model, dataset auditing/merging, partial
-label supervision, occlusion augmentation, motion-supported tracking, video/JSONL
+**Available:** trainable dense fretboard model, partial-label supervision,
+occlusion augmentation, motion-supported tracking, video/JSONL
 diagnostics, held-out pixel evaluation, and offline tab transcription combining
-pitch detection with fretting-hand tracking. The previous YOLO OBB detector
-remains available as a baseline. Live transcription and the mobile app are still
-to build. Audio pitch and blind string assignment have been measured on GuitarSet;
+pitch detection with fretting-hand tracking. Live transcription and the mobile
+app are still to build. Audio pitch and blind string assignment have been measured on GuitarSet;
 end-to-end transcription and camera accuracy remain unmeasured.
 
 ## Get started
@@ -25,15 +24,13 @@ Pitch-decoder/scoring tests require `uv sync --locked --extra transcribe`; they
 are skipped with the base install. For VS Code, select `.venv/bin/python` as the
 Python interpreter. The project includes a basic Pyright configuration.
 
-## Train the replacement
+## Train the detector
 
 The local dataset is useful for bootstrapping but needs more independent guitars,
 recording sessions, negatives and real occlusion examples. Read the
 [dataset audit and recommended additions](docs/dataset-review.md).
 
 ```sh
-uv run python -m processing.training.prepare \
-  --obb guitar_obb_dataset --output data/fretboard.json
 uv run python -m processing.training.train \
   --data data/fretboard.json --output runs/dense/fretboard-v1 \
   --epochs 150 --imgsz 768 --batch 1 --accumulate 16 --device mps
@@ -45,7 +42,7 @@ and nut, without depending on decorative markers. Training produces
 encoder weights; it does not start with a pretrained guitar detector.
 
 For CUDA use `--device cuda` and increase batch size if memory permits.
-See [model commands](docs/models.md) for resume, evaluation and data merging.
+See [model commands](docs/models.md) for resume and evaluation.
 
 ## Preview after training
 
@@ -71,7 +68,7 @@ Restart that app after changing permissions and close other camera applications.
 uv sync --locked --extra transcribe
 uv run --extra transcribe python -m processing.music.transcribe \
   --model runs/dense/fretboard-v1/best.pt \
-  --video clips/take-1.mp4 --output runs/transcribe/take-1 \
+  --video clips/take-4.mov --output runs/transcribe/take-4 \
   --device mps --progress
 ```
 
@@ -90,16 +87,6 @@ held-out annotated guitar, up from .740 at Basic Pitch's own defaults. See
 [tab transcription](docs/transcription.md) for the geometry, the scoring and the
 list of things it cannot do.
 
-## Compare the original detector
-
-Existing OBB checkpoints use the legacy entry point:
-
-```sh
-uv run --extra legacy python -m processing.vision.legacy_preview \
-  --model runs/obb/runs/obb/guitar_fretboard_obb_gpu-4/weights/best.pt \
-  --source 0 --show-detections
-```
-
 Local datasets and weights are not included in source control. Preserve dataset
 attribution files when sharing them. There is no shared artifact download yet.
 
@@ -111,10 +98,8 @@ attribution files when sharing them. There is no shared artifact download yet.
 | `processing/vision/tracker.py` | Wire geometry, conservative numbering and tracker |
 | `processing/vision/preview.py` | Camera/video diagnostics and timestamped JSONL |
 | `processing/training/data.py` | Manifest validation, targets and augmentation |
-| `processing/training/prepare.py` | Dataset audit, clipping, merging and overlap exclusion |
 | `processing/training/train.py` | Training and checkpoint resume |
 | `processing/training/evaluate.py` | Clean and synthetic-occlusion pixel evaluation |
-| `processing/vision/legacy_preview.py` | Original OBB overlay for comparison |
 | `processing/music/fretboard.py` | Image to (fret, string) board coordinates |
 | `processing/music/fusion.py` | Pitch plus hand evidence to tab positions; neck-position planning |
 | `processing/music/transcribe.py` | Offline transcription CLI and overlay |
@@ -131,26 +116,16 @@ Run tests before sharing changes. Commit `pyproject.toml`, `uv.lock`, and
 `.python-version` together when changing dependencies. Keep `.venv`, data, runs
 and model binaries out of source control.
 
-See [architecture and limitations](docs/architecture.md). Core ML tools are optional
-(`uv run --extra legacy --extra coreml`) and currently support the legacy OBB model only. The
-YOLO baseline now needs `--extra legacy`, which keeps `ultralytics` and its
-`opencv-python` dependency out of the default install: MediaPipe requires
-`opencv-contrib-python`, and two distributions cannot share the `cv2` namespace.
+See [architecture and limitations](docs/architecture.md).
 
 ## License and third-party material
 
 This project's own source is MIT licensed; see [LICENSE](LICENSE).
 
-Two things it depends on are not covered by that licence and are not
-redistributed here:
+Third-party datasets are not covered by that licence and are not redistributed
+here:
 
-- **`--extra legacy` pulls in `ultralytics`, which is AGPL-3.0.** It is an
-  optional extra, so the default install does not touch it, but a combined work
-  built on the YOLO baseline — including one served over a network — inherits
-  AGPL obligations. The dense detector in `processing/vision/model.py` has no
-  such dependency.
-- **Datasets and weights are yours to supply.** `guitar_obb_dataset/`, `data/`,
-  `clips/`, `runs/` and `*.pt` are all gitignored deliberately. The local OBB
-  dataset came from Roboflow under its own terms: keep `README.roboflow.txt` and
-  `README.dataset.txt` alongside the images if you share them. GuitarSet
-  (Zenodo record 3371780) is CC BY 4.0 and must be cited, not vendored.
+- **Datasets and weights are yours to supply.** `data/`, `clips/`, `runs/` and
+  `*.pt` are gitignored deliberately. The local visual dataset came from
+  Roboflow under CC BY 4.0. GuitarSet (Zenodo record 3371780) is also CC BY 4.0;
+  preserve attribution when sharing either dataset.

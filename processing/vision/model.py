@@ -63,11 +63,11 @@ def load_checkpoint(path, device='cpu'):
     try:
         checkpoint = torch.load(path, map_location='cpu', weights_only=True)
     except pickle.UnpicklingError as error:
-        raise ValueError('Not a dense state-dict checkpoint; use legacy_preview for YOLO OBB weights.') from error
+        raise ValueError('Not a FretboardNet state-dict checkpoint.') from error
     if not isinstance(checkpoint, dict):
         raise ValueError('Expected a dense checkpoint dictionary')
     if checkpoint.get('architecture') != 'fretboard-resnet34-unet-v1' or checkpoint.get('heads') != list(HEADS):
-        raise ValueError('Expected a FretboardNet checkpoint. Use legacy_preview for YOLO OBB weights.')
+        raise ValueError('Expected a FretboardNet checkpoint.')
     model = FretboardNet(pretrained=False)
     model.load_state_dict(checkpoint['model'])
     return model.to(device).eval(), checkpoint
@@ -112,4 +112,3 @@ def fuse_encoder(model):
                     module[index] = fuse_conv_bn_eval(conv, bn)
                     module[index+1] = nn.Identity()
     return model
-

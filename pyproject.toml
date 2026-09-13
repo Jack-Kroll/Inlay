@@ -15,10 +15,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-coreml = ["coremltools==9.0; sys_platform == 'darwin'"]
-# YOLO OBB baseline only. Kept out of the default install because ultralytics
-# depends on opencv-python, which would reintroduce a second cv2 provider.
-legacy = ["ultralytics==8.4.54"]
 transcribe = [
     # 1.0.x macOS arm64 wheels abort in TensorsToDetectionsCalculator (Metal graph
     # service unavailable), so the hand landmarker is pinned to the last good build.
@@ -28,6 +24,9 @@ transcribe = [
     # which setuptools removed in 81.
     "setuptools<81",
 ]
+
+[dependency-groups]
+dev = ["pyright==1.1.414"]
 
 [tool.uv]
 package = false

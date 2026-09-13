@@ -105,7 +105,8 @@ class Tally:
                 'referenced': self.referenced}
 
 
-def posteriorgram(audio, model, cache=None, dtype=np.float16):
+def posteriorgram(audio, model, cache=None,
+                  dtype: type[np.float16] | type[np.float32] = np.float16):
     """Model output for one excerpt, cached so a later sweep skips inference.
 
     Scoring an uncached float32 posteriorgram reproduces
@@ -183,7 +184,8 @@ def grid(args):
     return settings
 
 
-def sweep(excerpts, settings, cache_dir=None, progress=False, dtype=np.float16):
+def sweep(excerpts, settings, cache_dir=None, progress=False,
+          dtype: type[np.float16] | type[np.float32] = np.float16):
     totals = {setting: Tally() for setting in settings}
     styles = {}
     from basic_pitch import ICASSP_2022_MODEL_PATH

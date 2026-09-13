@@ -1,75 +1,73 @@
 # Architecture
 
-Media → timestamped visual observations → musical interpretation → editable music
-→ notation/tab rendering. Vision outputs image-space observations, not definitive
-played notes. Audio and vision will eventually share the media timestamp origin.
+Inlay turns recorded guitar into editable musical events:
 
-## Fretboard replacement
+media -> visual observations -> pitch and tab inference -> editable music
 
-1. `FretboardDataset` reads a versioned manifest, validates image hashes and split
-   groups, letterboxes images, generates coarse neck masks and wire targets, and
-   applies joint spatial augmentation. Only annotated heads contribute loss.
-2. `FretboardNet` shares a pretrained ResNet34 encoder across three dense heads.
-   Its U-Net decoder preserves spatial detail. Neck and wires can overlap; there
-   is no softmax forcing a wire pixel to cease belonging to the neck.
-3. `decode_maps` selects the largest supported neck region, extracts transverse
-   wire evidence inside it, merges duplicate line proposals and extends wire
-   segments to the predicted board boundary. It can find a board without a nut.
-4. Numbering fits `s(n) = a r(n)/(1+c r(n))`, where
-   `r(n)=1−2^(−n/12)`, against nut-relative wire positions. Candidate assignments
-   allow missing frets, require enough inliers and reject close alternatives.
-   No scale-length/nut-width prior or decorative-inlay pattern is used.
-5. `FretboardTracker` uses forward/backward Lucas–Kanade flow and RANSAC homography
-   checks to validate motion. It requires enough inliers spread over the board,
-   rejects extreme movement/area changes, smooths matched lines using elapsed
-   time, and exposes detected/tracked/lost states. Missing measurements can be
-   bridged only briefly with motion support. Numbering expires separately.
-6. The preview draws the boundary, wire lines and available numbers, displays
-   separate heatmaps, and can write timestamped JSONL with states and latency.
-   Video time comes from frame index/FPS, not inference wall time; camera time
-   comes from a monotonic clock. Timestamp discontinuities reset the tracker.
+Vision reports image-space evidence. It does not claim that a note sounded.
+Audio and vision are joined later using media timestamps.
 
-7. `processing/music` turns observations into tab offline. A homography maps the
-   image to board coordinates `(1-2**(-n/12), across)`, which is projective where
-   fret number is not. Numbered wires are clipped to one fitted edge per side of
-   the board so their endpoints become comparable. Strings are interpolated
-   across that board; the model has no string head. Basic Pitch supplies
-   sounding pitch, MediaPipe supplies fingertips, and one placement is chosen per
-   chord under the rule that two simultaneous notes cannot share a string.
-   See `transcription.md`.
+## Main pipeline
 
-The original OBB implementation is retained in `legacy_preview.py`, `geometry.py`
-and `train_obb.py` to enable controlled comparisons. It is not the default runtime.
+1. `FretboardNet` predicts three heatmaps: neck, fret wires, and nut.
+2. `decode_maps` converts those heatmaps into board geometry.
+3. `FretboardTracker` stabilizes valid geometry across short gaps using optical
+   flow and a RANSAC homography.
+4. Basic Pitch detects sounding pitches and onsets.
+5. MediaPipe detects fingertips.
+6. `processing/music` combines pitch, board geometry, and hand position to pick
+   one `(string, fret)` per note.
+7. The CLI writes an annotated video and diagnostic JSONL.
 
-## Deliberate limits and next validation
+## Key design choices
 
-- This architecture has not yet been shown to outperform the old checkpoint.
-  Short smoke runs validate software, not recognition quality.
-- Existing OBB-derived masks are coarse; unseen guitars and marker/occlusion
-  coverage need better data. See `dataset-review.md`.
-- One dominant board is supported. Multiple guitars require instance separation.
-- Hidden endpoints are model/geometry estimates. The tracker drops unsupported
-  occlusion instead of freezing a plausible-looking board indefinitely.
-- Long nut occlusion leaves numbering unknown while board detection may continue.
-  Stable long-duration numbering needs verified indexed keypoints or calibration.
-- A nut-like capo can still confuse an untrained/insufficiently trained model.
-- Numbering assumes conventional straight frets and a usable planar projection.
-  Fanned frets, severe distortion, curved views and tiny distant boards need
-  separate modeling and validation. No strings are measured by these heads.
-- Learned confidence is not yet calibrated. Thresholds, smoothing, expiry and
-  candidate-fit margins need validation on held-out recorded clips.
-- The decoder predicts evidence lines; it does not fill a complete numbered grid
-  outside the supported region. Absolute fret-number accuracy cannot be measured
-  from the current unnumbered annotations.
-- Dense Core ML export and mobile device parity/latency testing remain to do
-  after selecting a trained checkpoint. No runnable React Native app exists yet.
-- End-to-end transcription accuracy is unmeasured; audio pitch and blind string
-  assignment have separate GuitarSet evaluations. A fingertip near a cell is not proof the
-  string is pressed, and a missing fingertip is not proof it is open. Barre
-  chords, bends, slides and capos are not modelled; alternate tunings must be
-  supplied explicitly. The string order is inferred from which reading explains
-  more notes.
+### Dense geometry
 
-The music schema in `packages/music/performance.schema.json` remains an initial
-performance contract. Preserve musical spelling, beat/tempo maps and voices when
-extending it for score import/export.
+The model uses a pretrained ResNet34 encoder and U-Net decoder. Its three
+outputs are independent because neck and wire pixels may overlap.
+
+### Geometry without decorative markers
+
+Fret numbering uses the nut and equal-tempered fret spacing. It allows missing
+wires and rejects ambiguous fits. A board can be detected without a nut, but
+absolute fret numbers then remain unknown.
+
+### Estimates remain separate from measurements
+
+Short gaps between reliable frets may be estimated. These lines are marked as
+estimates and never reused as evidence for later numbering.
+
+### Tracking must have motion support
+
+Tracking requires enough optical-flow inliers spread across the board. It
+rejects extreme movement and expires after a short gap. This avoids freezing a
+plausible but stale overlay.
+
+### Physical board coordinates
+
+Image points map to `(1 - 2**(-n/12), across)`. Physical fret distance is
+projective under a camera view; raw fret number is not. Strings are currently
+interpolated across the fitted board rather than detected.
+
+### Musical constraints
+
+Each pitch may have several guitar positions. The system scores them using
+fingertips and planned hand position. Simultaneous notes cannot share a string.
+A Viterbi pass plans neck position across the whole clip so missing frames can
+use context on both sides.
+
+## Current limits
+
+- End-to-end transcription accuracy is not measured.
+- The visual dataset needs more independent guitars, sessions, negatives, and
+  real occlusions.
+- Strings are interpolated; the model has no string head.
+- A visible fingertip does not prove pressure or plucking.
+- Barre chords, bends, slides, capos, and fanned frets are not modeled.
+- Only one dominant fretboard is supported.
+- Mobile export and latency testing remain future work.
+- The mobile app is planned but not implemented.
+
+`packages/music/performance.schema.json` is the boundary between Python
+inference and a future editor. It represents timed performance events, not a
+complete musical score.
