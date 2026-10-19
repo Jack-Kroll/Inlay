@@ -64,14 +64,14 @@ own notes, sweeping the weight:
 | 0 (context only) | .653 | .538 | .669 | .365 |
 | .10 | .738 | .608 | .730 | .885 |
 | .20 | .857 | .706 | .855 | .885 |
-| **.25 (default)** | **.862** | **.711** | **.861** | **.885** |
+| .25 | .862 | .711 | .861 | .885 |
 | .35 | .862 | .711 | .861 | .888 |
 | 1.0 (audio only) | .858 | .707 | .856 | .892 |
 
-The surface is flat from .20 to .35 and falls away below it, so the default is
-the middle of the plateau rather than the grid argmax, for the same reason the
-constants below are. It was re-measured, unchanged, after the assignment below
-became a whole-onset one.
+The surface is flat from .20 to .35 and falls away below it, which made .25 the
+default — the middle of the plateau rather than the grid argmax, for the same
+reason the constants below are. It was re-measured, unchanged, after the
+assignment below became a whole-onset one. The default is now 0; see below.
 
 Open strings are where this earns its keep: .365 to .885. Nothing in the rules
 below can tell an open B from the same pitch fretted elsewhere, and
@@ -89,6 +89,37 @@ It is also the part of the verifier that generalises worst. On electric
 guitars it gains 12 points rather than 21, and on one IDMT subset it is worse
 than context alone — badly so, 24 points. See
 [note verifier](note-verifier.md#per-subset).
+
+### Why the default is nevertheless 0
+
+Everything above is GuitarSet: six acoustic guitars through one microphone,
+which is also what the string head was trained on. Off that corpus the term
+stops paying and starts costing, and a real clip showed how much.
+
+Transcribing Thunderstruck's open-B riff from a distorted electric, a weight of
+.25 placed 42 of the B3 notes at string 3 fret 4. The right pitch, the wrong
+string, and a fingering nobody would play. Open placements across the clip fell
+from 26 to 4, and fingertip support — the camera's independent opinion, which
+this term cannot influence — fell with them. At weight 0 both recovered, above
+what the thresholds alone managed:
+
+| Thunderstruck | notes | open | B3 open | B3 at 3/4 | fingertip support |
+|---|---:|---:|---:|---:|---:|
+| Basic Pitch thresholds | 95 | 26 | 25 | 17 | .638 |
+| verifier, weight .25 | 93 | 4 | 3 | 42 | .449 |
+| verifier, weight 0 | 93 | 32 | 30 | 13 | .656 |
+
+Gating the term on the head's own confidence does not separate the good cases
+from the bad — at a .9 gate IDMT string accuracy *drops* — so the head is
+confidently wrong off acoustic guitar rather than uncertain, and no threshold
+keeps the win while dropping the damage.
+
+A note placed on a string nobody fretted is worse than a note left to musical
+context, because it reads as a real fingering rather than as a guess. So the
+term ships off, at the cost of 21 points of GuitarSet string accuracy and the
+open-string result that motivated it. `--audio-string-weight .25` turns it back
+on for acoustic material that resembles GuitarSet. Electric training data for
+the string head is the fix, not a different constant.
 
 ## Main rules
 

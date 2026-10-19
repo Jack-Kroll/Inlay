@@ -27,12 +27,27 @@ SUPPORT_THRESHOLD = .35
 # two are genuinely independent evidence about the same question. Zero here
 # reproduces the geometry-only behaviour exactly.
 #
-# Measured on GuitarSet's validation player with no video, over the verifier's
-# own notes: string accuracy went .625 -> .867 and tab F1 .511 -> .708. Open
-# strings, which musical context cannot place at all, went .248 -> .870. The
-# surface is flat from .20 to .35 and falls off below it, so this is the middle
-# of the plateau rather than the grid argmax. See docs/tab-logic.md.
-AUDIO_STRING_WEIGHT = .25
+# Default off, which is not what GuitarSet says. On GuitarSet a weight of .25
+# is worth 21 points of string accuracy (.668 -> .881 on the held-out player)
+# and 19 of tab F1, and it is the only thing that places an open string at all
+# (.542 -> .947). That gain does not survive leaving the corpus the string head
+# was trained on.
+#
+# On a distorted electric playing Thunderstruck's open-B riff, a weight of .25
+# put 42 of the B3 notes at string 3 fret 4 -- the right pitch, the wrong
+# string, and a fingering nobody would play -- and open placements across the
+# clip fell from 26 to 4. Fingertip support, which is the camera's independent
+# opinion, fell with them: .638 to .449. Setting the weight to 0 restored both
+# (32 open, .656), above the thresholds baseline. On IDMT's electrics the same
+# term gains only 9 points against 23 on GuitarSet and loses two subsets
+# outright, and confidence gating does not separate the cases: the head is
+# confidently wrong off acoustic guitar rather than uncertain.
+#
+# A note placed on a string nobody fretted is worse than a note left to
+# context, because it reads as a real fingering. So the term is off until the
+# string head has electric training data. Pass --audio-string-weight .25 for
+# acoustic material that resembles GuitarSet. See docs/tab-logic.md.
+AUDIO_STRING_WEIGHT = 0.
 # An unoccupied string is only evidence of absence: a fingertip can be missed or
 # occluded. Credit it below a fingertip sitting squarely on a cell, so positive
 # evidence always outranks the lack of it.

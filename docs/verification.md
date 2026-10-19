@@ -48,6 +48,12 @@ training, checkpoint selection, or threshold choice; 8,715 notes, no video.
 The middle row predates the whole-onset string assignment and was not
 re-measured; the other two are current.
 
+The string and tab columns assume `--audio-string-weight .25`. The shipped
+default is 0, which scores `.902` note F1, `.668` string and `.603` tab F1 on
+the same notes: the term is worth 21 points of string accuracy here and loses
+badly on electric guitars, so it is off by default. See
+[tab logic](tab-logic.md).
+
 - Basic Pitch held-out GuitarSet F1 over all 312 non-tuning excerpts: `.779`.
 - Blind string assignment with perfect pitches and no audio timbre: `.698`
   note by note, `.707` solving each onset as a whole, over 62,476 notes.

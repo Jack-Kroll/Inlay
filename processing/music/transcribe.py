@@ -26,6 +26,7 @@ from processing.vision.preview import draw_text, draw_observation, open_capture
 from processing.vision.tracker import FretboardTracker, decode_maps, transform_observation
 from processing.vision import DEFAULT_MODEL
 from .fretboard import DEFAULT_STRING_INSET, board_transform
+from . import verify
 from .fusion import (AUDIO_STRING_WEIGHT, assign_positions, finger_contacts,
                      hand_position, plan_positions, unexplained_contacts)
 from .hands import CONNECTIONS, HandTracker, fretting_hand
@@ -400,6 +401,16 @@ def main():
                         help='Verifier checkpoint; defaults to the shipped one if present')
     parser.add_argument('--no-verifier', dest='use_verifier', action='store_false',
                         help='Decode with Basic Pitch thresholds instead of the verifier')
+    # Both of these were chosen on GuitarSet, which is six acoustic guitars
+    # through one microphone. They are exposed because they are the two things
+    # to reach for when transcribing something that does not sound like that.
+    parser.add_argument('--verifier-threshold', type=float,
+                        help=f'Score a note must beat (default {verify.SCORE_THRESHOLD}); '
+                             'lower it to report more notes')
+    parser.add_argument('--audio-string-weight', type=float,
+                        help=f'How much audio timbre decides the string '
+                             f'(default {AUDIO_STRING_WEIGHT}); 0 leaves it to the camera '
+                             'and musical context')
     # The thresholds below are the fallback when no verifier is used; they were
     # tuned on GuitarSet, see docs/pitch-tuning.md.
     parser.add_argument('--onset-threshold', type=float, default=.6)
@@ -455,7 +466,8 @@ def main():
             # Basic Pitch rounds the cutoff to a MIDI bin and excludes that bin.
             # Use the next semitone so odd/even top pitches are both retained.
             maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12),
-            verifier=verifier, device=device)
+            verifier=verifier, device=device,
+            verifier_threshold=args.verifier_threshold)
         print(f'  {len(notes)} note events'
               f'{" (verifier)" if verifier else " (basic-pitch thresholds)"}', flush=True)
 
@@ -478,7 +490,8 @@ def main():
         order_scores = {}
         for flipped in options:
             assignments, per_group = transcribe_notes(
-                records, notes, tuning, args.max_fret, args.inset, flipped, len(tuning))
+                records, notes, tuning, args.max_fret, args.inset, flipped, len(tuning),
+                audio_weight=args.audio_string_weight)
             score = fingered_rate(per_group)
             order_scores['flipped' if flipped else 'normal'] = score
             print(f'  string order {"flipped" if flipped else "normal"}: '
@@ -510,6 +523,12 @@ def main():
         summary = {
             'video': str(args.video.resolve()), 'model': str(args.model.resolve()),
             'frames': len(records), 'fps': fps, 'notes': len(assignments),
+            'verifier': str(verifier) if verifier else None,
+            'verifier_threshold': (args.verifier_threshold if args.verifier_threshold
+                                   is not None else verify.SCORE_THRESHOLD) if verifier else None,
+            'audio_string_weight': (args.audio_string_weight
+                                    if args.audio_string_weight is not None
+                                    else AUDIO_STRING_WEIGHT),
             'tuning': list(tuning), 'max_fret': args.max_fret, 'string_inset': args.inset,
             'string_order': 'flipped' if args.flipped else 'normal',
             'string_order_selected': args.string_order,

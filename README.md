@@ -116,6 +116,14 @@ On IDMT-SMT-GUITAR's electric guitars, which nothing is trained on, note F1
 goes `.695` to `.817`, string accuracy `.514` to `.634`, and tab F1 `.358` to
 `.518`.
 
+The string columns above need `--audio-string-weight .25`, which is **not the
+default**. That term is worth 21 points of string accuracy on GuitarSet and is
+the only thing that places an open string there, but on a distorted electric it
+put 42 of Thunderstruck's open-B notes on the wrong string. It ships off until
+the string head has electric training data; without it the shipped default
+scores `.902` note F1 and `.603` tab F1 on the table above. See
+[tab logic](docs/tab-logic.md).
+
 - Complete audio/video transcription accuracy has still not been measured.
   Nothing above involves the camera.
 - The verifier is trained on three hours of acoustic guitar from six players,
@@ -124,6 +132,9 @@ goes `.695` to `.817`, string accuracy `.514` to `.634`, and tab F1 `.358` to
   only partly, and on two of eight IDMT subsets it is still beaten by musical
   context alone.
 - Strings are interpolated rather than detected.
+- The two settings chosen on GuitarSet, the verifier's score threshold and the
+  audio string weight, are both exposed as flags because they are the first
+  things to reach for on material that does not sound like GuitarSet.
 - Capos, bends, slides, barre chords, and alternate tunings are not inferred.
 
 More detail is available in [the note verifier](docs/note-verifier.md),

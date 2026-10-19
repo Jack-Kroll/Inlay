@@ -235,7 +235,7 @@ def _pitch_of(frequency):
 
 
 def notes_from_media(media, audio=None, workdir=None, verifier=None, device=None,
-                     **kwargs):
+                     verifier_threshold=None, **kwargs):
     """Detect notes in a video (audio extracted) or an existing audio file.
 
     With ``verifier`` set to a checkpoint, the notes are decoded by the learned
@@ -259,6 +259,7 @@ def notes_from_media(media, audio=None, workdir=None, verifier=None, device=None
     activations = raw_activations(audio, verbose)
     notes = verified_notes(
         activations, verifier, device, audio=audio, verbose=verbose,
+        threshold=verifier_threshold,
         minimum_pitch=_pitch_of(kwargs.get('minimum_frequency')),
         maximum_pitch=_pitch_of(kwargs.get('maximum_frequency')))
     return notes, activations, Path(audio)
