@@ -26,10 +26,10 @@ from processing.vision.preview import draw_text, draw_observation, open_capture
 from processing.vision.tracker import FretboardTracker, decode_maps, transform_observation
 from processing.vision import DEFAULT_MODEL
 from .fretboard import DEFAULT_STRING_INSET, board_transform
-from .fusion import (assign_positions, finger_contacts, hand_position, plan_positions,
-                     unexplained_contacts)
+from .fusion import (AUDIO_STRING_WEIGHT, assign_positions, finger_contacts,
+                     hand_position, plan_positions, unexplained_contacts)
 from .hands import CONNECTIONS, HandTracker, fretting_hand
-from .pitch import notes_from_media
+from .pitch import default_verifier, notes_from_media
 from .tuning import STANDARD_TUNING, note_name, validate_tuning
 
 # Overlay colour (BGR) for each kind of evidence behind a note's placement.
@@ -87,8 +87,15 @@ def nearest_record(records, timestamps, timestamp, tolerance=.12):
     return fallback
 
 
-def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=None):
-    """Assign every note a (string, fret), one decision per chord."""
+def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=None,
+                     audio_weight=None):
+    """Assign every note a (string, fret), one decision per chord.
+
+    ``audio_weight`` overrides how much a note's audio string posterior counts;
+    None uses ``fusion.AUDIO_STRING_WEIGHT``.
+    """
+    if audio_weight is None:
+        audio_weight = AUDIO_STRING_WEIGHT
     timestamps = [r.timestamp for r in records]
     strings = len(tuning) if strings is None else strings
     groups = group_notes(notes)
@@ -120,7 +127,8 @@ def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=N
         sounding = [note for note in sounding if note.end > group[0].start]
         results = assign_positions(group, contacts, tuning, max_fret,
                                    board=transform is not None, hand=hand is not None,
-                                   occupied=sounding, position=position)
+                                   occupied=sounding, position=position,
+                                   audio_weight=audio_weight)
         for result in results:
             # Onset and pitch are not unique IDs (nor are rounded timestamps).
             assignments[len(assignments)] = result
@@ -388,7 +396,12 @@ def main():
                         help='"standard" or comma-separated MIDI pitches, highest string first')
     parser.add_argument('--hands', type=int, default=2)
     parser.add_argument('--hand-model', type=Path)
-    # Tuned on GuitarSet; see docs/pitch-tuning.md.
+    parser.add_argument('--verifier', type=Path,
+                        help='Verifier checkpoint; defaults to the shipped one if present')
+    parser.add_argument('--no-verifier', dest='use_verifier', action='store_false',
+                        help='Decode with Basic Pitch thresholds instead of the verifier')
+    # The thresholds below are the fallback when no verifier is used; they were
+    # tuned on GuitarSet, see docs/pitch-tuning.md.
     parser.add_argument('--onset-threshold', type=float, default=.6)
     parser.add_argument('--frame-threshold', type=float, default=.45)
     parser.add_argument('--min-note-ms', type=float, default=60.)
@@ -421,6 +434,14 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     from processing.training.train import select_device
     device = select_device(args.device)
+    verifier = None
+    if args.use_verifier:
+        verifier = args.verifier if args.verifier else default_verifier()
+        if args.verifier and not args.verifier.is_file():
+            parser.error(f'No verifier checkpoint at {args.verifier}')
+        if verifier is None:
+            print('No verifier checkpoint found; using Basic Pitch thresholds. '
+                  'Train one with processing.training.train_verifier.', flush=True)
 
     # Name the input up front: the output files are named after the video, so a
     # stale --video with a fresh --output is otherwise silently confusing.
@@ -435,8 +456,10 @@ def main():
             minimum_frequency=440 * 2 ** ((min(tuning)-69)/12),
             # Basic Pitch rounds the cutoff to a MIDI bin and excludes that bin.
             # Use the next semitone so odd/even top pitches are both retained.
-            maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12))
-        print(f'  {len(notes)} note events', flush=True)
+            maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12),
+            verifier=verifier, device=device)
+        print(f'  {len(notes)} note events'
+              f'{" (verifier)" if verifier else " (basic-pitch thresholds)"}', flush=True)
 
         # --- Step 2: video -> fretboard geometry and fretting hand per frame.
         print('Detecting fretboard and hands...', flush=True)

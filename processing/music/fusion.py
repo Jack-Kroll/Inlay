@@ -20,6 +20,19 @@ FRET_TOLERANCE = 1.
 POSITION_WIDTH = 4.
 CONTACT_WEIGHT, POSITION_WEIGHT = .75, .25
 SUPPORT_THRESHOLD = .35
+# How much a per-note string posterior from audio is allowed to move the
+# choice, against the geometric evidence it is mixed with. Audio and geometry
+# disagree about different things -- audio hears timbre and cannot see the
+# neck; the camera sees the neck and cannot hear which string rang -- so the
+# two are genuinely independent evidence about the same question. Zero here
+# reproduces the geometry-only behaviour exactly.
+#
+# Measured on GuitarSet's validation player with no video, over the verifier's
+# own notes: string accuracy went .625 -> .867 and tab F1 .511 -> .708. Open
+# strings, which musical context cannot place at all, went .248 -> .870. The
+# surface is flat from .20 to .35 and falls off below it, so this is the middle
+# of the plateau rather than the grid argmax. See docs/tab-logic.md.
+AUDIO_STRING_WEIGHT = .25
 # An unoccupied string is only evidence of absence: a fingertip can be missed or
 # occluded. Credit it below a fingertip sitting squarely on a cell, so positive
 # evidence always outranks the lack of it.
@@ -204,11 +217,18 @@ def hand_position(contacts):
     return float(np.median(usable)) if usable else None
 
 
-def _score(string, fret, contacts, position):
+def _score(string, fret, contacts, position, posterior=None,
+           audio_weight=AUDIO_STRING_WEIGHT):
     """Return (score, finger, contact term) for one candidate spelling.
 
-    score = CONTACT_WEIGHT * (is a fingertip on this cell?)
-          + POSITION_WEIGHT * (is this fret near where the hand is?)
+    geometry = CONTACT_WEIGHT * (is a fingertip on this cell?)
+             + POSITION_WEIGHT * (is this fret near where the hand is?)
+    score    = (1 - audio_weight)*geometry + audio_weight*posterior[string]
+
+    ``posterior`` is what audio thinks of each string for this note, highest
+    string first, or None when audio has no opinion. It is mixed in rather than
+    added so the scale stays comparable across notes that have it and notes
+    that do not.
     """
     if fret == 0:
         # An open string is credited when nothing is sitting on that string.
@@ -225,15 +245,21 @@ def _score(string, fret, contacts, position):
                 best, finger = value, candidate.finger
         contact = best
     if position is None:
-        return contact, finger, contact
-    # Fret 0 needs no hand, so it is not judged on how near the fingers are.
-    nearness = (OPEN_REACH if fret == 0 else
-                float(np.exp(-.5 * ((fret - position) / POSITION_WIDTH) ** 2)))
-    return CONTACT_WEIGHT * contact + POSITION_WEIGHT * nearness, finger, contact
+        geometry = contact
+    else:
+        # Fret 0 needs no hand, so it is not judged on how near the fingers are.
+        nearness = (OPEN_REACH if fret == 0 else
+                    float(np.exp(-.5 * ((fret - position) / POSITION_WIDTH) ** 2)))
+        geometry = CONTACT_WEIGHT * contact + POSITION_WEIGHT * nearness
+    if posterior is None or not audio_weight:
+        return geometry, finger, contact
+    heard = float(posterior[string - 1]) if 0 < string <= len(posterior) else 0.
+    return (1 - audio_weight)*geometry + audio_weight*heard, finger, contact
 
 
 def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
-                     board=True, hand=True, occupied=(), position=None):
+                     board=True, hand=True, occupied=(), position=None,
+                     audio_weight=AUDIO_STRING_WEIGHT):
     """Choose one (string, fret) per simultaneous note.
 
     No two notes may share a string, since one string sounds one pitch. Notes
@@ -248,6 +274,9 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
     to collide with a later one is a re-pluck, not a conflict.
     """
     results = [TabNote(n.pitch, n.start, n.end, n.amplitude) for n in notes]
+    # What audio thought of each string, per note, read off the incoming notes
+    # rather than the results built from them: only the caller's notes carry it.
+    posteriors = [getattr(note, 'string_posterior', None) for note in notes]
     # A seen hand always wins; ``position`` is the caller's fallback for when
     # the hand is missing, so the neck does not appear to teleport per chord.
     seen = hand_position(contacts)
@@ -260,8 +289,10 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
         if not options:
             note.flags.append('out-of-range')
             continue
+        posterior = posteriors[index]
         for string, fret in options:
-            score, finger, contact = _score(string, fret, contacts, position)
+            score, finger, contact = _score(string, fret, contacts, position, posterior,
+                                            audio_weight)
             scored.append((score, contact, index, string, fret, finger))
     # Equal scores favour stronger audio activations, then lower-fret spellings.
     scored.sort(key=lambda row: (-row[0], -results[row[2]].amplitude, row[4], row[3]))
@@ -287,6 +318,9 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
             if 'stopped-by-repluck' not in other.flags:
                 other.flags.append('stopped-by-repluck')
         note.string, note.fret, note.confidence, note.finger = string, fret, float(score), finger
+        if posteriors[index] is not None and audio_weight:
+            note.evidence['audio_string'] = [round(float(value), 3)
+                                             for value in posteriors[index]]
         # Label what evidence backed the choice (see TabNote.support).
         # Only a genuine displacement counts: this note's own best-scoring
         # spelling was already claimed by a different note.

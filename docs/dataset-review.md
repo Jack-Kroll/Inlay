@@ -53,7 +53,19 @@ Potential sources still require license and overlap review:
   research-use terms.
 
 GuitarSet supplies audio and per-string musical annotations. It does not supply
-camera-space fretboard or fingertip labels.
+camera-space fretboard or fingertip labels. It is what the
+[note verifier](note-verifier.md) is trained on: six players, acoustic guitars,
+one microphone, about three hours.
+
+IDMT-SMT-GUITAR adds a Fender Stratocaster, a Gibson Les Paul, an Aristides
+and an Ibanez over four pickup settings, with onset, pitch, string and fret per
+event — 5,164 usable notes in standard tuning. It is CC BY-NC-ND 4.0, so it is
+used only to measure generalisation and never to train. It is also what showed
+that the verifier's string head does not transfer off acoustic guitar.
+
+What the audio side needs next is electric and amplified training data with
+string labels, and augmentation (gain, EQ, amp, room) over what exists. Neither
+has been tried.
 
 ## What to collect next
 

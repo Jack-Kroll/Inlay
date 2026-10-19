@@ -2,7 +2,10 @@
 
 Inlay combines three signals:
 
-- Basic Pitch supplies sounding pitch and onset time.
+- Basic Pitch supplies a posteriorgram, which the
+  [note verifier](note-verifier.md) decodes into notes with onset times and a
+  per-string posterior. `--no-verifier` falls back to Basic Pitch's own
+  thresholds.
 - The dense detector supplies fretboard geometry.
 - MediaPipe supplies fingertip positions.
 
@@ -32,6 +35,8 @@ Useful options:
 - `--audio FILE`: use aligned replacement audio.
 - `--string-order normal|flipped`: override automatic orientation.
 - `--tuning ...`: supply a custom tuning.
+- `--verifier FILE`: use a specific verifier checkpoint.
+- `--no-verifier`: decode with Basic Pitch's thresholds instead.
 
 ## Why it is offline
 
@@ -130,8 +135,11 @@ visible finger does not prove that a string sounded.
 
 ## Known limitations
 
-- Audio F1 is .779 on held-out GuitarSet; complete accuracy is unmeasured.
-- Blind string assignment with perfect pitch is .698 overall.
+- Audio note F1 is .898 on the held-out GuitarSet player and .803 on
+  IDMT-SMT-GUITAR's electric guitars; complete audio-plus-video accuracy is
+  unmeasured.
+- The audio string posterior is trained on acoustic guitar and should not be
+  trusted on an unfamiliar instrument.
 - Fast 60-100 ms notes and strummed chords are difficult.
 - Barre chords, bends, slides, hammer-ons, vibrato, and capos are not modeled.
 - The picking hand is used only to identify the fretting hand.

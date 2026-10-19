@@ -3,6 +3,13 @@
 This document measures only the audio stage. It does not measure fretboard,
 hand, string assignment, or full transcription accuracy.
 
+The thresholds below are no longer how inlay decodes notes by default. They
+were the best a threshold could do, and measuring why they plateaued led to
+the [note verifier](note-verifier.md), which replaces them: note F1 on a
+held-out GuitarSet player went .821 -> .898. The thresholds remain the
+fallback when no verifier checkpoint is present, and `--no-verifier` selects
+them. This page is the record of how they were chosen.
+
 ## Dataset and scoring
 
 GuitarSet contains 360 thirty-second acoustic-guitar recordings from six
@@ -75,6 +82,13 @@ For an experiment, try:
 Lower thresholds can recover weak events but also add harmonics and fragmented
 notes. Notes only 60-100 ms apart remain a major weakness of the model rather
 than a simple threshold problem.
+
+This turned out to understate the case. Of the notes these thresholds miss,
+only 0.1% have no onset activation at all: 80% are above .30 and 22% are above
+the .60 threshold that was meant to accept them, failing instead on the frame
+gate. Their median frame activation is .413, just under the .45 cutoff. The
+evidence was in the posteriorgram and the decoder was discarding it. See the
+[note verifier](note-verifier.md) for the full diagnostic and what it led to.
 
 ## Visual rescue experiment
 

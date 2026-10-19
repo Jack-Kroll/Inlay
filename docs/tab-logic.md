@@ -28,6 +28,57 @@ Over 62,476 notes, string accuracy improved from 41.2% to 69.8%:
 The current planner scored .692 on the 312 excerpts not used to tune its two
 constants.
 
+## Audio's opinion about the string
+
+The rules below work from musical context: which positions are playable, where
+the hand is, and which strings are already taken. Over 62,476 notes with
+perfect pitch they reach .698.
+
+The [note verifier](note-verifier.md)'s string head answers the same question
+from a completely different direction — the timbre in Basic Pitch's
+posteriorgram and a constant-Q transform of the audio. Asked on its own it
+places .879 of GuitarSet's held-out test player's notes on the right string.
+
+Those are independent kinds of evidence about one question: audio hears tone
+and cannot see the neck, the camera sees the neck and cannot hear which string
+rang. So a note may carry a `string_posterior`, and `_score` mixes it in:
+
+```text
+geometry = CONTACT_WEIGHT*contact + POSITION_WEIGHT*nearness
+score    = (1 - AUDIO_STRING_WEIGHT)*geometry + AUDIO_STRING_WEIGHT*posterior[string]
+```
+
+Measured on GuitarSet's validation player with no video, over the verifier's
+own notes, sweeping the weight:
+
+| Audio weight | String | Tab F1 | Fretted | Open |
+|---|---:|---:|---:|---:|
+| 0 (context only) | .625 | .511 | .646 | .248 |
+| .10 | .715 | .584 | .706 | .875 |
+| .20 | .861 | .704 | .861 | .868 |
+| **.25 (default)** | **.867** | **.708** | **.866** | **.870** |
+| .35 | .867 | .708 | .867 | .866 |
+| 1.0 (audio only) | .862 | .704 | .861 | .868 |
+
+The surface is flat from .20 to .35 and falls away below it, so the default is
+the middle of the plateau rather than the grid argmax, for the same reason the
+constants below are.
+
+Open strings are where this earns its keep: .248 to .870. Nothing in the rules
+below can tell an open B from the same pitch fretted elsewhere, and
+`OPEN_REACH` is a prior standing in for evidence that was not available.
+Timbre is that evidence. Fretted notes gain too, .646 to .866, but the open
+case is the one that was structurally unsolvable.
+
+Mixing beats audio alone by about half a point. Without a camera, "geometry"
+here is only musical context, and context adds little to timbre; with a camera
+in the real pipeline it contributes rather more, which this measurement cannot
+show.
+
+It is also the part of the verifier that generalises worst. On electric
+guitars it gains 9 points rather than 23, and on two IDMT subsets it is worse
+than context alone. See [note verifier](note-verifier.md).
+
 ## Main rules
 
 ### Simultaneous notes cannot share a string
@@ -64,8 +115,9 @@ An open note needs no finger, so finger distance is not evidence about it.
 | Truly open notes | .506 |
 | Overall | .698 |
 
-The system still cannot distinguish an open B from the same pitch fretted
-elsewhere without timbre or reliable pressed-finger evidence.
+Without timbre or reliable pressed-finger evidence the rules cannot distinguish
+an open B from the same pitch fretted elsewhere. Timbre is what the audio
+string posterior supplies, and open strings are where it helps most.
 
 ## Rejected ideas
 
@@ -77,6 +129,8 @@ elsewhere without timbre or reliable pressed-finger evidence.
 
 ## Remaining limitations
 
+- The audio string posterior is trained on acoustic guitar and should not be
+  trusted on an unfamiliar instrument.
 - Only neck position is planned globally; chord voicings are assigned greedily.
 - Open-only passages inherit position from neighboring chords.
 - Visual fingertip contribution is not measured against ground truth.
