@@ -3,6 +3,7 @@
     uv run python -m processing.tools.variants --variants 3
     uv run python -m processing.tools.variants --source pickup --variants 0
     uv run python -m processing.tools.variants --source hex --remixes 3
+    uv run python -m processing.tools.variants --shift 3 8 --variants 2
 
 A *domain* is one recording chain over the same performances: GuitarSet's
 microphone as recorded (already cached), its pickup mix of the same takes, a
@@ -19,6 +20,12 @@ the one design question here -- augmenting the CQT channels alone and leaving
 the posteriorgram channels clean would have saved almost nothing and left
 five of the model's eight input channels un-augmented.
 
+``--shift`` additionally moves each excerpt up the neck by resampling it,
+which changes the pitch and the timing of the labels as well as the audio. The
+shift that was actually applied is stored beside the posteriorgram, so
+``verifier_data`` reads it back rather than recomputing a random draw and
+hoping the two agree.
+
 Augmented domains are rendered for the training players only. The pickup
 domain is rendered for every player, because a held-out player's pickup take
 is the cross-domain number that says whether augmentation worked without
@@ -26,6 +33,7 @@ spending IDMT-SMT-GUITAR to find out.
 """
 from __future__ import annotations
 import argparse, contextlib, io, json, tempfile, zlib
+from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
@@ -54,6 +62,25 @@ def _model():
     return _MODEL[0]
 
 
+@dataclass(frozen=True)
+class Job:
+    """One excerpt to render into one domain.
+
+    Everything the worker needs travels in here rather than in a module
+    global: macOS spawns worker processes, which re-import this module and
+    would not see a global the parent had changed.
+    """
+    domain: str
+    name: str
+    audio: Path
+    root: Path
+    augmented: bool = False
+    remix: bool = False
+    strength: float = 1.
+    shift: tuple[int, int] | None = None
+    headroom: int = 0
+
+
 def seed(domain, name):
     """A stable seed per (domain, excerpt).
 
@@ -66,30 +93,37 @@ def seed(domain, name):
 
 def _render(job):
     """Render one excerpt into one domain: posteriorgram and CQT."""
-    domain, name, audio, root, augmented, remix, strength = job
-    stem = verifier_data.variant_name(domain, name)
-    posteriorgram = root/'posteriorgrams'/f'{stem}.npz'
-    spectrum = root/'cqt'/f'{stem}.npz'
+    stem = verifier_data.variant_name(job.domain, job.name)
+    posteriorgram = job.root/'posteriorgrams'/f'{stem}.npz'
+    spectrum = job.root/'cqt'/f'{stem}.npz'
     if posteriorgram.is_file() and spectrum.is_file():
-        return name, 'cached'
+        return job.name, 'cached'
 
     import librosa, soundfile
     from basic_pitch.inference import run_inference
     # Seeded by excerpt and domain, so a re-render reproduces this chain and
     # two domains of one excerpt never draw the same one.
-    rng = np.random.default_rng(seed(domain, name))
+    rng = np.random.default_rng(seed(job.domain, job.name))
     done = []
-    if remix:
+    if job.remix:
         # Six channels at 44.1 kHz, one string each, resampled together.
-        stems = librosa.load(str(audio), sr=augment.SAMPLE_RATE, mono=False)[0]
+        stems = librosa.load(str(job.audio), sr=augment.SAMPLE_RATE, mono=False)[0]
         wave, note = augment.remix([np.asarray(stem, np.float32) for stem in stems], rng)
         done.append(note)
     else:
-        wave = librosa.load(str(audio), sr=augment.SAMPLE_RATE, mono=True)[0]
+        wave = librosa.load(str(job.audio), sr=augment.SAMPLE_RATE, mono=True)[0]
         wave = np.asarray(wave, np.float32)
         done.append('as recorded')
-    if augmented:
-        wave, note = augment.chain(wave, rng, strength=strength)
+    semitones = 0
+    if job.shift:
+        # Clamped to the neck: an excerpt that already reaches fret 20 can
+        # only move two frets, whatever was asked for.
+        low, high = job.shift
+        semitones = int(min(rng.integers(low, high + 1), job.headroom))
+        wave = augment.neck_shift(wave, semitones)
+        done.append(f'up {semitones} semitones')
+    if job.augmented:
+        wave, note = augment.chain(wave, rng, strength=job.strength)
         done.append(note)
     description = '; '.join(done)
 
@@ -102,12 +136,15 @@ def _render(job):
         with contextlib.redirect_stdout(io.StringIO()):
             output = run_inference(str(path), _model())
     posteriorgram.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(posteriorgram,
+    # The shift travels with the posteriorgram: it changes what the labels are,
+    # not just what the audio sounds like, and a second random draw elsewhere
+    # would silently disagree with this one.
+    np.savez_compressed(posteriorgram, shift=np.int8(semitones),
                         **{key: output[key].astype(np.float16) for key in KEYS})
     spectrum.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(spectrum,
                         cqt=verify.spectrum(wave).astype(np.float16))
-    return name, description
+    return job.name, description
 
 
 def main():
@@ -124,6 +161,9 @@ def main():
     parser.add_argument('--players', nargs='*',
                         help='Which players to render; training players by default, '
                              'all six when --variants is 0')
+    parser.add_argument('--shift', type=int, nargs=2, metavar=('LOW', 'HIGH'),
+                        help='Also move each excerpt this many semitones up the '
+                             'neck, drawn per excerpt and clamped to the neck')
     parser.add_argument('--strength', type=float, default=1.,
                         help='Scale the chain: decibels, drive and how often '
                              'each stage fires')
@@ -156,11 +196,23 @@ def main():
         # A harder chain gets a name of its own, so two strengths can sit in
         # the caches at once and be trained against each other.
         label = 'aug' if args.strength == 1 else f'aug{args.strength:g}'
+        if args.shift:
+            label = f'shift{args.shift[0]}-{args.shift[1]}'
         domains = [f'{prefix}{label}-v{number}'
                    for number in range(1, args.variants + 1)]
         augmented = True
-    jobs = [(domain, excerpt.name, excerpt.audio, args.root, augmented, remix,
-             args.strength) for domain in domains for excerpt in found]
+    headroom = {}
+    if args.shift:
+        # Read once per excerpt rather than once per render: the annotations
+        # are 1.5 MB of JSON each.
+        headroom = {excerpt.name: augment.shift_headroom(excerpt.notes())
+                    for excerpt in found}
+    shift = tuple(args.shift) if args.shift else None
+    jobs = [Job(domain=domain, name=excerpt.name, audio=excerpt.audio,
+                root=args.root, augmented=augmented, remix=remix,
+                strength=args.strength, shift=shift,
+                headroom=headroom.get(excerpt.name, 0))
+            for domain in domains for excerpt in found]
     print(f'{len(found)} {args.source} excerpts x {len(domains)} '
           f'domain(s) {" ".join(domains)} = {len(jobs)} renders')
 
@@ -174,9 +226,9 @@ def main():
     # chains that produced it rather than the ranges they were drawn from.
     path = args.root/'posteriorgrams'/f'{domains[0]}.manifest.json'
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({verifier_data.variant_name(domain, name): description
-                                for (domain, name, *_), description
-                                in zip(jobs, rendered)}, indent=2))
+    path.write_text(json.dumps({verifier_data.variant_name(job.domain, job.name):
+                                description
+                                for job, description in zip(jobs, rendered)}, indent=2))
     print(f'done; wrote {path}')
 
 

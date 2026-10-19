@@ -11,10 +11,15 @@ model's memory rather than its accuracy.
 
 An excerpt can appear more than once, under a *domain*: the microphone as
 recorded, GuitarSet's pickup mix of the same performance, or an augmented
-render of either (``processing.tools.variants``). Every domain of one excerpt
-shares its annotation -- the audio moved, the notes did not -- and the domain
-a number is measured on is always named, because a model trained on a
+render of either (``processing.tools.variants``). Most domains share their
+excerpt's annotation unchanged -- the audio moved, the notes did not -- and the
+domain a number is measured on is always named, because a model trained on a
 synthesised amp and measured on one would only be describing the augmenter.
+
+A neck-shifted domain is the exception. It was resampled to move up the neck,
+which raises every pitch and shortens every interval by the same ratio, so its
+annotation is scaled to match. The shift is read back from the posteriorgram
+that was rendered with it rather than redrawn here.
 """
 from __future__ import annotations
 import argparse
@@ -113,6 +118,21 @@ class Patches:
         return out
 
 
+def shifted(notes, semitones):
+    """The same notes as played ``semitones`` higher up the same strings.
+
+    Resampling an excerpt to raise it by a ratio shortens it by that ratio, so
+    every annotated time divides by it and every pitch gains the interval. The
+    string does not move, which is the whole point: this exists to show the
+    string head the top of a neck GuitarSet barely visits.
+    """
+    if not semitones:
+        return notes
+    ratio = 2.**(semitones/12.)
+    return [guitarset.Note(note.start/ratio, note.end/ratio,
+                           note.pitch + semitones, note.string) for note in notes]
+
+
 def _one(job):
     index, name, annotation, cache = job
     from basic_pitch.note_creation import model_frames_to_time
@@ -120,12 +140,13 @@ def _one(job):
         onset = stored['onset'].astype(np.float32)
         note = stored['note'].astype(np.float32)
         contour_frames = stored['contour'].shape[0]
+        semitones = int(stored['shift']) if 'shift' in stored.files else 0
     times = model_frames_to_time(contour_frames)
     frames = min(onset.shape[0], len(times))
     found = verify.peaks(onset)
     found[frames:] = False
     rows, columns = np.nonzero(found)
-    reference = guitarset.load_notes(annotation)
+    reference = shifted(guitarset.load_notes(annotation), semitones)
 
     # Reference notes grouped by pitch column, so labelling is a local search.
     by_pitch = {}

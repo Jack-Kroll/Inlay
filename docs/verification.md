@@ -80,6 +80,11 @@ re-measured; the other two are current.
 - Whether GuitarSet's hex-pickup stems help. Measured: they give the string
   head more than anything else tried and cost note detection more than they
   give, and are not used.
+- Whether the string head can be taught the top of the neck. It is worst
+  there by a wide margin -- `.636` of IDMT's notes below fret 12 land on the
+  right string against `.361` at fret 12 and up, and `.153` past fret 15,
+  which is below chance. Resampling excerpts up the neck fixes that region and
+  costs more in the 92% of notes below it; measured and rejected.
 - Real-hand occlusion or absolute fret-number accuracy.
 - Generalization to unseen guitars.
 - Live-camera or mobile latency guarantees.

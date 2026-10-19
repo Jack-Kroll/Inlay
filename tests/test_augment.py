@@ -7,6 +7,8 @@ import sys
 import unittest
 import numpy as np
 
+from processing.music import verify
+from processing.tools.guitarset import OPEN_STRINGS, Note
 from processing.training import augment, verifier_data
 
 RATE = augment.SAMPLE_RATE
@@ -174,6 +176,71 @@ class Chain(unittest.TestCase):
         self.assertEqual(len(description.split()), 1)
         # Level alone: the shape is untouched, so the two still correlate exactly.
         self.assertAlmostEqual(float(np.corrcoef(out, wave)[0, 1]), 1., places=5)
+
+
+class NeckShift(unittest.TestCase):
+    """Resampling an excerpt up the neck has to move the labels with it."""
+
+    def shifted_peak(self, semitones, hz=220.):
+        wave = (np.sin(2*np.pi*hz*np.arange(RATE)/RATE)*.3).astype(np.float32)
+        out = augment.neck_shift(wave, semitones)
+        spectrum = abs(np.fft.rfft(out))
+        return out, float(np.fft.rfftfreq(len(out), 1/RATE)[np.argmax(spectrum)])
+
+    def test_pitch_rises_by_the_interval_asked_for(self):
+        for semitones in (3, 5, 8):
+            _, peak = self.shifted_peak(semitones)
+            self.assertAlmostEqual(peak, 220.*2**(semitones/12), delta=1.)
+
+    def test_duration_shortens_by_the_same_ratio(self):
+        # The two have to move together, or the annotation cannot be rescaled
+        # by one number.
+        for semitones in (3, 5, 8):
+            out, _ = self.shifted_peak(semitones)
+            self.assertAlmostEqual(len(out), RATE/2**(semitones/12), delta=2)
+
+    def test_no_shift_is_the_identity(self):
+        wave = pluck()
+        self.assertIs(augment.neck_shift(wave, 0), wave)
+
+    def test_the_attack_lands_where_the_rescaled_label_says(self):
+        offset = 8000
+        wave = augment.neck_shift(pluck(offset, length=RATE), 5)
+        ratio = 2**(5/12)
+        envelope = np.abs(wave)
+        attack = int(np.argmax(envelope > .2*envelope.max()))
+        # Within a frame of the verifier's own grid, which is what the
+        # candidate has to land inside.
+        self.assertLess(abs(attack - offset/ratio), RATE/verify.FPS)
+
+    def test_headroom_stops_at_the_end_of_the_neck(self):
+        note = lambda fret, string=0: Note(0., 1., float(OPEN_STRINGS[string] + fret),
+                                           string)
+        self.assertEqual(augment.shift_headroom([note(5)]), augment.HIGHEST_FRET - 5)
+        self.assertEqual(augment.shift_headroom([note(5), note(20)]),
+                         augment.HIGHEST_FRET - 20)
+        self.assertEqual(augment.shift_headroom([note(augment.HIGHEST_FRET)]), 0)
+        self.assertEqual(augment.shift_headroom([]), 0)
+
+
+class ShiftedLabels(unittest.TestCase):
+    def test_a_note_moves_up_its_own_string(self):
+        before = Note(1., 2., float(OPEN_STRINGS[2] + 4), 2)
+        after, = verifier_data.shifted([before], 5)
+        self.assertEqual(after.string, before.string)
+        self.assertEqual(after.fret, before.fret + 5)
+        self.assertAlmostEqual(after.pitch, before.pitch + 5)
+
+    def test_times_divide_by_the_pitch_ratio(self):
+        before = Note(1., 2., 55., 0)
+        after, = verifier_data.shifted([before], 5)
+        ratio = 2**(5/12)
+        self.assertAlmostEqual(after.start, 1./ratio)
+        self.assertAlmostEqual(after.end, 2./ratio)
+
+    def test_no_shift_leaves_the_notes_alone(self):
+        notes = [Note(1., 2., 55., 0)]
+        self.assertIs(verifier_data.shifted(notes, 0), notes)
 
 
 class Domains(unittest.TestCase):

@@ -114,6 +114,10 @@ uv run python -m processing.training.train_verifier \
 
 The middle two steps are augmentation, described under
 [recording-chain augmentation](#recording-chain-augmentation) below.
+`variants` can also render GuitarSet's pickup transducer, remixes of its
+per-string hex pickup, and excerpts resampled up the neck; the last two were
+measured and are not used, for the reasons under
+[rejected ideas](#rejected-ideas).
 
 Splits hold whole players out: 00–03 train, 04 validates, 05 is touched only
 for the final number. A player's guitar, touch and session repeat across all
@@ -374,12 +378,59 @@ its notes above fret 12 where GuitarSet has 1.2% above fret 12 and 0.1% above
 fret 15. It is out of distribution in neck position rather than in tone, which
 no amount of EQ can fix. Context alone places .921 of those notes and the
 string head .579, so the audio term costs 24 points here and this is the one
-place in the corpus where it is a liability rather than a help. Resampling an
-excerpt to shift it up the neck — scaling every annotated time by the same
-ratio, so onsets stay sharp and labels stay exact — would address it and is
-untried.
+place in the corpus where it is a liability rather than a help. Shifting
+excerpts up the neck by resampling was tried for it and rejected; see
+[rejected ideas](#rejected-ideas) and the table below.
+
+#### Where up the neck the string head fails
+
+Bucketing IDMT's notes by the fret its annotation gives them, and asking the
+string head alone — which no assignment rule touches:
+
+| reference fret | notes | shipped | neck-shifted |
+|---|---:|---:|---:|
+| 0–2 | 830 | .665 | .558 |
+| 3–5 | 1,385 | .684 | .534 |
+| 6–8 | 984 | .564 | .502 |
+| 9–11 | 519 | .595 | .461 |
+| 12–14 | 174 | .494 | .533 |
+| 15+ | 111 | **.153** | .438 |
+| below fret 12 | 3,718 | .636 | .520 |
+| fret 12 and up | 285 | .361 | .494 |
+
+The shipped column is the measurement that matters. Past fret 15 the head
+scores .153, *below* the .167 a coin flip gets: it is not uncertain there, it
+is systematically wrong, and the training data says why. A given pitch in
+GuitarSet is almost always a low fret on a higher string, because 60 of its
+62,476 notes are above fret 15, so that is the answer the head has learned to
+give. `dataset3` is the one subset where that matters enough to lose.
 
 ## Rejected ideas
+
+- **Shifting excerpts up the neck by resampling.** Playing an excerpt faster
+  raises every pitch and shortens every interval by one ratio, so the labels
+  move with it exactly — divide each annotated time, add the interval to each
+  pitch, leave the string alone — and no phase vocoder is involved, so attacks
+  stay as sharp as they were. The transform is right: shifted audio scored
+  against *unshifted* labels drops candidate recall to .245, and against
+  shifted labels it holds .981 where clean audio gets .984.
+
+  Trained as one domain of four, shifted 3 to 8 semitones per excerpt and
+  clamped to fret 22, it did exactly what it was aimed at and lost anyway. The
+  string head's own argmax went .153 → .438 above fret 15 and .361 → .494 at
+  fret 12 and up, while below fret 12 it fell .636 → .520. Overall IDMT string
+  accuracy went .638 → .560 and tab F1 .521 → .465, worse than before any
+  augmentation, though note F1 rose to .832 — the best of any run.
+
+  Mixing in less of it cannot rescue the arithmetic: 92% of the notes are below
+  fret 12, so the region it damages is twelve times the size of the region it
+  fixes, and diluting scales both. The fault is in the approximation rather
+  than the diagnosis. Resampling moves the body and pickup resonances with the
+  note, where a real instrument leaves them where they are, and the model is
+  handed absolute pitch — so it learns where the spectral envelope sits at each
+  pitch, and learns it wrong. A formant-preserving shift would not have that
+  flaw, and neither would real recordings played high up a neck.
+  `augment.neck_shift` and `variants --shift` are kept for the first of those.
 
 - **GuitarSet's hex-pickup stems.** The debleeded hex pickup records each string
   on its own channel; measured over isolated notes, 98% of a string's energy

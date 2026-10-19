@@ -300,3 +300,60 @@ def remix(stems, rng, spread_db=STRING_SPREAD_DB):
     if peak > .99:
         mix *= .99/peak
     return mix, 'remix ' + ' '.join(f'{gain:+.1f}' for gain in gains)
+
+
+# The neck the tab stage plans over (fusion.plan_positions' max_fret), so a
+# shifted excerpt stays on a guitar that exists.
+HIGHEST_FRET = 22
+
+
+def neck_shift(wave, semitones, sample_rate=SAMPLE_RATE):
+    """Move a whole excerpt up the neck by resampling it.
+
+    **Measured and rejected**: training on this fixes the high frets and costs
+    more than it gains everywhere else. It is kept because the diagnosis it
+    came from stands and a formant-preserving version might not have the same
+    flaw; see "Rejected ideas" in docs/note-verifier.md for the numbers.
+
+    The string head is far worse high up the neck than low down: measured on
+    IDMT-SMT-GUITAR it places .636 of the notes below fret 12 on the right
+    string and .361 at fret 12 and above, falling to .153 past fret 15, which
+    is *below* the .167 a coin flip gets. GuitarSet is the reason -- 60 of its
+    62,476 notes are above fret 15, so the head learned that a given pitch is
+    almost always the open-ish fret of a higher string and says so.
+
+    Resampling fixes the distribution rather than the tone. Playing an excerpt
+    faster raises every pitch by the same ratio and shortens every interval by
+    it, so the labels move with it exactly: scale each annotated time by the
+    same ratio and add ``semitones`` to each pitch, and the string a note was
+    played on does not change at all. No phase vocoder is involved, so attacks
+    stay as sharp as they were.
+
+    It is an approximation, and the part that matters turned out to be fatal.
+    A real note higher up the same string has a shorter vibrating length, so
+    its inharmonicity and brightness differ in ways a uniform frequency scaling
+    does not reproduce -- and worse, the guitar's body and pickup resonances
+    move with the note here where in reality they stay where the instrument put
+    them. The model is given absolute pitch as an input, so it can and does
+    learn where the spectral envelope sits at each pitch, and this teaches it
+    the wrong answer. What survives exactly is only the partial structure
+    relative to the fundamental.
+
+    The caller scales the annotation; ``variants`` stores the shift beside the
+    posteriorgram so the two cannot disagree.
+    """
+    import librosa
+    if not semitones:
+        return wave
+    ratio = 2.**(semitones/12.)
+    # Treating the input as if it had been sampled faster and resampling back
+    # to the real rate decimates it to len/ratio samples, which is the same
+    # thing as playing it faster. The resampler's anti-alias filter sits well
+    # above the CQT's top bin, so nothing the model reads is lost.
+    return np.asarray(librosa.resample(
+        wave, orig_sr=sample_rate*ratio, target_sr=sample_rate), np.float32)
+
+
+def shift_headroom(notes, highest=HIGHEST_FRET):
+    """How far up the neck an excerpt can move before it runs off the end."""
+    return max(0, highest - max((note.fret for note in notes), default=highest))
