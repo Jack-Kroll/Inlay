@@ -206,17 +206,18 @@ string posterior supplies, and open strings are where it helps most.
   | audio alone | .843 | .805 | .860 | .896 | .944 | .963 |
   | fused at .25 | .839 | .803 | .867 | .902 | .924 | .920 |
 
-  A full voicing is where the audio term earns the most, not the least: at six
-  notes it is worth 27 points over context. Taking the weight to zero as the
-  onset fills costs .861 -> .846 overall and .920 -> .648 on six-note onsets.
-  Raising it instead is worth nothing measurable (.862). Polyphony is not what
-  the weight should depend on; how much to trust the string head is, and
-  nothing available at that point measures it --- gating on the head's own
-  confidence was tried and rejected, see
+  (Validation player, note by note, which is the rule the taper was proposed
+  against.) A full voicing is where the audio term earns the most, not the
+  least: at six notes it is worth 27 points over context. Taking the weight to
+  zero as the onset fills costs .861 -> .846 overall and .920 -> .648 on
+  six-note onsets. Raising it instead is worth nothing measurable (.862).
+  Polyphony is not what the weight should depend on; how much to trust the
+  string head is, and nothing available at that point measures it — gating on
+  the head's own confidence was tried and rejected, see
   [the note verifier](note-verifier.md#rejected-ideas).
 - **Normalising geometry and audio into distributions before mixing them.**
-  Without video the geometry term is compressed into .15--.25 while the
-  posterior spans 0--1, so a "weight" of .25 is in practice audio-dominant;
+  Without video the geometry term is compressed into .15–.25 while the
+  posterior spans 0–1, so a "weight" of .25 is in practice audio-dominant;
   normalising each into a distribution over the note's own feasible strings
   makes the weight mean what it says. It is worth about .002 on GuitarSet at
   its own best weight (.45, since the scale changes), and more under a
