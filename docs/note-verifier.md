@@ -154,7 +154,7 @@ runs, so the numbers describe what inlay does rather than what a harness does.
 ## Results
 
 GuitarSet player 05, never used for training, checkpoint selection, or
-threshold choice. 8,715 notes, at the shipped score threshold of .85, with no
+threshold choice. 8,715 notes, at a score threshold of .85, with no
 video — the tab stage has musical context and the audio string posterior, and
 nothing else:
 
@@ -171,6 +171,14 @@ requires pitch and string at once, which is what a tab reader sees.
 
 Raising the threshold to .90 trades recall for precision at the same F1
 (.897, P .921, R .874) — the surface is flat across that range.
+
+The shipped default is .75 rather than the F1-optimal .85, and the audio string
+term is off. At those settings the same player scores note F1 .894 (P .874,
+R .916), string .664 and tab F1 .594. Both departures are deliberate and both
+are argued from real clips rather than from this table: see
+[tab logic](tab-logic.md) for the string term and
+`processing.music.verify.SCORE_THRESHOLD` for the threshold. GuitarSet prefers
+.85 and an acoustic recording should use it.
 
 The last row is what ships. Augmentation was added for the electric guitars of
 the next section, and on GuitarSet it is close to free: note F1 .898 → .902,

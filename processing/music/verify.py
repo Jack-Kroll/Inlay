@@ -47,9 +47,22 @@ PAD = ((FRAME_RADIUS, FRAME_RADIUS), (PITCH_RADIUS, PITCH_RADIUS))
 # times the candidates.
 PEAK_THRESHOLD = .15
 PEAK_WIDTH = 1
-# Chosen on GuitarSet's validation player, confirmed on its test player. The
-# F1 surface is flat from .85 to .93.
-SCORE_THRESHOLD = .85
+# GuitarSet's F1 peaks at .85 and is flat up to .93, but F1 is not what a tab
+# reader notices. On real clips .85 was dropping notes a human could hear:
+# Blackbird reported 25 where Basic Pitch's thresholds found 42, and
+# Thunderstruck 93 against 95. At .70 those become 37 and 102; .75 sits just
+# above, and the overlays either side of it were judged better by eye than .85.
+#
+# On GuitarSet's test player the move from .85 down to .70 costs 1.3 points of
+# note F1 (.902 -> .889) and 5.2 of precision (.909 -> .857), and buys 2.7 of
+# recall (.896 -> .923); .75 is partway along that trade. Nothing here has ground truth for a phone recording of an
+# electric guitar, so this is a judgement that a missed note is worse than a
+# spurious one for a transcript a person is going to correct by hand -- the
+# opposite of the trade the Basic Pitch thresholds were tuned for, where a
+# spurious pitch could take a string from a real note. Whole-onset assignment
+# weakened that coupling. Pass --verifier-threshold .85 for the F1-optimal
+# setting. See docs/note-verifier.md.
+SCORE_THRESHOLD = .75
 # Notes closer together than the onset tolerance cannot both be real attacks
 # on one string, so the weaker is suppressed.
 ONSET_TOLERANCE = .05
