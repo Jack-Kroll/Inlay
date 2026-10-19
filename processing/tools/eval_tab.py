@@ -17,18 +17,10 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from processing.music.fusion import Sounded
 from processing.music.transcribe import transcribe_notes
 from processing.music.tuning import STANDARD_TUNING
 from processing.tools import guitarset
-
-
-@dataclass
-class Sounded:
-    """The minimum ``transcribe_notes`` needs: a pitch with a lifetime."""
-    pitch: int
-    start: float
-    end: float
-    amplitude: float = 1.
 
 
 def inlay_string(gs_string, strings=len(guitarset.OPEN_STRINGS)):

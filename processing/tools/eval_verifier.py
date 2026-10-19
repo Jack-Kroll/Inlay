@@ -20,27 +20,18 @@ import numpy as np
 import torch
 
 from processing.music import verify
+from processing.music.fusion import Sounded
 from processing.music.transcribe import transcribe_notes
 from processing.music.tuning import STANDARD_TUNING
 from processing.tools import guitarset
 from processing.tools.eval_tab import inlay_string
-from processing.tools.tune_pitch import CURRENT, estimate, _arrays
+from processing.tools.tune_pitch import CURRENT, estimate, arrays
 from processing.training import verifier_data
 
 ROOT = Path('data/guitarset')
 CACHE = ROOT/'posteriorgrams'
 TOLERANCE = .05
-
-
-class Sounded:
-    """A decoded note, carrying what audio thought of each string for it."""
-
-    def __init__(self, pitch, start, end, posterior=None):
-        self.pitch, self.start, self.end, self.amplitude = pitch, start, end, 1.
-        self.string_posterior = posterior
-
-
-# Columns of the count vector score_notes returns and the report adds up.
+# Columns of the count vector score_notes returns and the reports add up.
 COLUMNS = ('matched', 'estimated', 'referenced', 'string_fused', 'string_direct',
            'open_matched', 'open_fused', 'fretted_matched', 'fretted_fused')
 
@@ -57,7 +48,7 @@ def score_notes(notes, reference, audio_weight=None):
         counts = np.zeros(len(COLUMNS), np.int64)
         counts[1], counts[2] = len(notes), len(reference)
         return counts
-    sounded = [Sounded(pitch, start, end, posterior)
+    sounded = [Sounded(pitch, start, end, string_posterior=posterior)
                for start, end, pitch, posterior in notes]
     assigned, _ = transcribe_notes([], sounded, STANDARD_TUNING, 22, .12, False,
                                    audio_weight=audio_weight)
@@ -65,9 +56,9 @@ def score_notes(notes, reference, audio_weight=None):
     # results back to the notes they came from rather than trusting positions.
     placed = {(result.pitch, result.start): result for result in assigned.values()}
     tab = [placed.get((note.pitch, note.start)) for note in sounded]
-    reference_intervals, reference_pitches = _arrays(
+    reference_intervals, reference_pitches = arrays(
         [(note.start, note.end, note.pitch) for note in reference])
-    intervals, pitches = _arrays([(s, e, p) for s, e, p, _ in notes])
+    intervals, pitches = arrays([(s, e, p) for s, e, p, _ in notes])
     pairs = mir_eval.transcription.match_notes(
         reference_intervals, reference_pitches, intervals, pitches,
         onset_tolerance=TOLERANCE, pitch_tolerance=50., offset_ratio=None)  # type: ignore[arg-type]  # mir_eval documents None to ignore offsets.

@@ -92,7 +92,6 @@ Support values are:
 | `position-only` | Only planned neck position supports it. |
 | `no-hand` | No usable hand evidence. |
 | `no-board` | No usable board geometry. |
-| `rescued` | Experimental weak audio plus stable visual evidence. |
 
 Unexplained fingertips are reported rather than hidden. They may be damping,
 hovering, moving, or evidence of incorrect geometry.
@@ -117,21 +116,6 @@ uv run python -m processing.vision.preview --show-heatmaps
 
 The string grid appears only when sufficient numbering and endpoint evidence
 exists. Mirroring affects display, not saved coordinates or tab.
-
-## Experimental visual rescue
-
-Add `--visual-rescue` to inspect weak Basic Pitch activations that have stable,
-exact-cell fingertip support:
-
-```sh
-uv run python -m processing.music.transcribe \
-  --video clips/take-4.mov --output runs/transcribe/take-4-rescue \
-  --mirror --visual-rescue
-```
-
-Rescued notes are pink and include evidence in JSONL. The option preserves
-baseline assignments and rejects conflicts. It remains experimental because a
-visible finger does not prove that a string sounded.
 
 ## Known limitations
 

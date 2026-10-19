@@ -15,8 +15,8 @@ not the same as proving model accuracy.
 
 The suite covers model training behavior, partial labels, letterboxing, fret
 decoding, numbering, tracking expiry, projective transforms, mirroring, pitch
-decoding, tab constraints, rendering, audio muxing, custom tunings, visual
-rescue, verifier peak-picking and patch geometry, CQT time alignment, note
+decoding, tab constraints, rendering, audio muxing, custom tunings,
+verifier peak-picking and patch geometry, CQT time alignment, note
 decoding and re-pluck handling, the audio string term, the whole-onset string
 match (checked against brute force), IDMT parsing, and the training
 augmentation's filter responses, causality and determinism.
@@ -55,7 +55,7 @@ re-measured; the other two are current.
   trained on: note F1 `.695` -> `.817`, string `.515` -> `.638`, tab F1 `.358`
   -> `.521`. Augmentation supplied `.803` -> `.817` and `.607` -> `.634` of
   that, and assigning each onset's strings as a whole the last `.634` ->
-  `.638`. Seven configurations have been scored against IDMT, which is more
+  `.638`. Nine configurations have been scored against IDMT, which is more
   than a held-out set should see; the assignment change was chosen entirely on
   GuitarSet's validation player and then measured on IDMT once.
 - Cross-transducer within GuitarSet, validation player on the pickup mix rather
@@ -64,7 +64,7 @@ re-measured; the other two are current.
   8.2 points to 4.8.
 - The runtime path was checked against the measurement harness on 12 test
   excerpts: `.879` -> `.911` note F1, same direction and magnitude.
-- Unit and integration suite: 184 tests.
+- Unit and integration suite: 173 tests.
 
 ## Not established
 

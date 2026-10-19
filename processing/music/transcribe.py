@@ -33,7 +33,7 @@ from .pitch import default_verifier, notes_from_media
 from .tuning import STANDARD_TUNING, note_name, validate_tuning
 
 # Overlay colour (BGR) for each kind of evidence behind a note's placement.
-SUPPORT_COLORS = {'rescued': (255, 130, 240), 'fingered': (120, 255, 120), 'open': (255, 210, 120),
+SUPPORT_COLORS = {'fingered': (120, 255, 120), 'open': (255, 210, 120),
                   'position-only': (80, 190, 255), 'no-hand': (150, 150, 150),
                   'no-board': (150, 150, 150), 'none': (150, 150, 150)}
 # Onsets closer together than this (seconds) are treated as one chord.
@@ -329,7 +329,7 @@ def _draw_hud(frame, record, transform, active, contacts, args):
     draw_text(frame, f'{record.index:5d}  t={record.timestamp:6.2f}s  {record.state}  '
                      f'numbering: {numbering}  board: {board}', (12, 24), .5)
     draw_text(frame, f'inference {record.inference_ms:.0f} ms   strings: interpolated '
-                     f'(inset {args.inset:.2f}{", flipped" if args.flipped else ""}) | Pink: rescued', (12, 44), .42,
+                     f'(inset {args.inset:.2f}{", flipped" if args.flipped else ""})', (12, 44), .42,
               (170, 170, 180))
     y = 70
     for note in active[:6]:
@@ -408,8 +408,6 @@ def main():
     parser.add_argument('--mirror', action='store_true', help='Mirror the rendered video')
     parser.add_argument('--no-strings', dest='show_strings', action='store_false',
                         help='Hide the interpolated string lines')
-    parser.add_argument('--visual-rescue', action='store_true',
-                        help='Experimentally add weak audio notes confirmed by stable fingertips')
     parser.add_argument('--no-video', dest='write_video', action='store_false')
     parser.add_argument('--max-frames', type=int)
     parser.add_argument('--progress', action='store_true')
@@ -491,22 +489,7 @@ def main():
         _, assignments, per_group = best
         transform_kwargs = dict(strings=len(tuning), inset=args.inset, flipped=args.flipped)
 
-        # --- Optional step 4: recover quiet notes the audio thresholds dropped,
-        # but only where a steady fingertip sits on the matching fret.
-        rescue_report = {'enabled': args.visual_rescue, 'accepted': 0}
-        baseline_count = len(notes)
-        if args.visual_rescue:
-            from .rescue import rescue_notes
-            rescued, details = rescue_notes(activations, records, list(assignments.values()),
-                                             tuning, args.max_fret, args.inset, args.flipped,
-                                             duration)
-            rescue_report.update(details)
-            rescue_report.update(onset_threshold=.45, frame_threshold=.35)
-            for note in rescued:
-                assignments[len(assignments)] = note
-            print(f'  visually rescued {len(rescued)} weak audio notes', flush=True)
-
-        # --- Step 5: diagnostics, then write the JSONL and overlay video.
+        # --- Step 4: diagnostics, then write the JSONL and overlay video.
         counts = {}
         for note in assignments.values():
             counts[note.support] = counts.get(note.support, 0)+1
@@ -527,7 +510,6 @@ def main():
         summary = {
             'video': str(args.video.resolve()), 'model': str(args.model.resolve()),
             'frames': len(records), 'fps': fps, 'notes': len(assignments),
-            'baseline_notes': baseline_count, 'visual_rescue': rescue_report,
             'tuning': list(tuning), 'max_fret': args.max_fret, 'string_inset': args.inset,
             'string_order': 'flipped' if args.flipped else 'normal',
             'string_order_selected': args.string_order,

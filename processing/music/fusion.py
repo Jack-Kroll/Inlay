@@ -154,7 +154,7 @@ class TabNote:
 
     ``support`` records the evidence behind the placement: 'fingered' (a
     fingertip is on that cell), 'open', 'position-only' (just the planned neck
-    position), 'no-hand', 'no-board', or 'rescued'.
+    position), 'no-hand', or 'no-board'.
     """
     pitch: int
     start: float
@@ -172,6 +172,23 @@ class TabNote:
     @property
     def name(self):
         return note_name(self.pitch)
+
+
+@dataclass
+class Sounded:
+    """The minimum the tab stage needs from a note: a pitch with a lifetime.
+
+    ``assign_positions`` reads ``pitch``, ``start``, ``end``, ``amplitude`` and
+    an optional ``string_posterior``, and nothing else. In the pipeline that is
+    a ``processing.music.pitch.NoteEvent``; this is the stand-in for callers
+    that have a pitch and no audio stage behind it -- the GuitarSet and IDMT
+    evaluations feeding annotated notes in, and the tests.
+    """
+    pitch: int
+    start: float
+    end: float
+    amplitude: float = 1.
+    string_posterior: np.ndarray | None = None
 
 
 def finger_contacts(hand, transform, fingers=FRETTING_FINGERS, max_fret=22, margin=.6):

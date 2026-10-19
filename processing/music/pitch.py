@@ -39,28 +39,15 @@ class NoteEvent:
         return self.start - lead <= timestamp < self.end
 
 
-# Basic Pitch's note and onset heads cover 88 semitones from A0.
-LOWEST_BIN = 21
-
-
-@dataclass(frozen=True)
-class Evidence:
-    """What the network says about one pitch over one span of time."""
-    time: float    # Where the onset activation peaked, in seconds.
-    onset: float   # Peak onset activation over the window.
-    frame: float   # Peak note activation over the window.
-
-
 @dataclass(frozen=True)
 class Posteriorgram:
     """Per-frame activation for every pitch, as the network produced it.
 
-    ``detect_notes`` reports only what survives the global thresholds, but the
-    thresholds are applied *after* the network: everything the model saw is in
-    these arrays. A stage that already knows which pitch to look for -- a fret
-    and string read off the camera, say -- can ask what the audio says at that
-    pitch without lowering the thresholds for the whole recording, and without
-    a second pass over the waveform.
+    The thresholds in ``detect_notes`` are applied *after* the network, so
+    everything the model saw is still in these arrays. That is what the note
+    verifier reads: it decides whether a note attacked from the shape of the
+    activation around a candidate rather than from one value against a
+    cutoff. See ``processing.music.verify``.
 
     ``note`` and ``onset`` are (frames, 88), ``contour`` is (frames, 264) at
     three bins per semitone, and ``times`` is the onset time of each frame in
@@ -70,31 +57,6 @@ class Posteriorgram:
     onset: np.ndarray
     times: np.ndarray
     contour: np.ndarray | None = None
-
-    def evidence(self, pitch, start, end):
-        """What the network says about ``pitch`` over ``[start, end]`` seconds.
-
-        Returns None when the pitch or the window falls outside what the model
-        reported, so a caller cannot mistake "no evidence" for "off the end".
-        The reported time is where the *onset* head peaked: a caller that knows
-        which pitch to look for gets its attack from the onset head, which is
-        the head trained to localise one.
-        """
-        column = int(round(pitch)) - LOWEST_BIN
-        if not 0 <= column < self.note.shape[1]:
-            return None
-        frames = min(len(self.times), self.note.shape[0])
-        if frames <= 0 or end < start:
-            return None
-        # Convert the time window to a frame range (at least one frame long).
-        first = min(max(int(np.searchsorted(self.times, start)), 0), frames - 1)
-        last = min(max(int(np.searchsorted(self.times, end)), first + 1), frames)
-        if last <= first:
-            return None
-        onsets = self.onset[first:last, column]
-        peak = first + int(np.argmax(onsets))
-        return Evidence(time=float(self.times[peak]), onset=float(onsets.max()),
-                        frame=float(self.note[first:last, column].max()))
 
 
 def extract_audio(media, destination, sample_rate=SAMPLE_RATE):

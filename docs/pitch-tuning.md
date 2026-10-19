@@ -90,27 +90,28 @@ gate. Their median frame activation is .413, just under the .45 cutoff. The
 evidence was in the posteriorgram and the decoder was discarding it. See the
 [note verifier](note-verifier.md) for the full diagnostic and what it led to.
 
-## Visual rescue experiment
+## Rejected: visual rescue
 
-The raw posteriorgram allows vision to ask whether weak audio evidence exists
-for one expected pitch without a second model run.
+The raw posteriorgram lets vision ask whether weak audio evidence exists for
+one expected pitch without a second model run. An oracle experiment showed
+that perfect visual candidates could improve recall, so the runtime carried a
+conservative, opt-in `--visual-rescue` that required stable exact-cell
+fingertip evidence plus weak audio.
 
-An oracle experiment showed that perfect visual candidates could improve
-recall. The result stopped being attractive once realistic non-sounding fingers
-were included: held, damping, hovering, and anchoring fingers created false
-notes, pushing F0.5 below the baseline.
+It was removed. Two measurements killed it:
 
-The runtime therefore keeps visual rescue conservative and opt-in. It requires
-stable exact-cell fingertip evidence plus weak audio, preserves baseline notes,
-and labels additions as rescued. It cannot rescue open strings or prove that a
-visible finger caused a sound.
+- With realistic non-sounding fingers included, it stopped being attractive at
+  all. Held, damping, hovering and anchoring fingers created false notes and
+  pushed F0.5 below the baseline. A visible finger never proved a string
+  sounded, and it could not rescue open strings in principle.
+- The problem it existed to solve was a decoding failure, not a missing-evidence
+  one. The [note verifier](note-verifier.md) recovers those notes from the
+  audio alone — recall .834 to .894 with precision *rising* — so rescue became
+  a worse answer to a question that was no longer open.
 
-Use the bound experiment to revisit the decision:
-
-```sh
-uv run python -m processing.tools.rescue_bound \
-  --limit 48 --visual-error 0.10 --output runs/rescue-bound/oracle.json
-```
+The code, its oracle-bound tool and its tests are gone; the finding is this
+section. Anything that revisits vision-proposed notes should start from the
+verifier's candidate set rather than from a second threshold.
 
 ## Limits of these numbers
 

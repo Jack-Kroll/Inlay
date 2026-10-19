@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 
 from processing.music import pitch
-from processing.music.fusion import plan_positions
+from processing.music.fusion import Sounded, plan_positions
 from processing.tools import guitarset
 from processing.tools.tune_pitch import CURRENT, Setting, Tally, counts, estimate, grid
 
@@ -189,53 +189,6 @@ class GridTests(unittest.TestCase):
         self.assertEqual(grid(args), [CURRENT])
 
 
-class PosteriorgramTests(unittest.TestCase):
-    """The activations a visual-candidate rescue would consult."""
-
-    def build(self, frames=10):
-        note = np.zeros((frames, 88), dtype=np.float32)
-        onset = np.zeros((frames, 88), dtype=np.float32)
-        times = np.arange(frames, dtype=np.float64)/10
-        return pitch.Posteriorgram(note, onset, times)
-
-    def test_peak_is_located_by_the_onset_head(self):
-        """The onset head is the one trained to say where an attack is."""
-        board = self.build()
-        column = 54 - pitch.LOWEST_BIN
-        board.onset[3, column], board.onset[7, column] = .4, .9
-        board.note[5, column] = .8
-        found = board.evidence(54, 0., .9)
-        self.assertIsNotNone(found)
-        assert found is not None
-        self.assertAlmostEqual(found.time, .7)
-        self.assertAlmostEqual(found.onset, .9)
-        # The frame peak is the window's, not whatever sits under the onset.
-        self.assertAlmostEqual(found.frame, .8)
-
-    def test_window_restricts_what_is_seen(self):
-        board = self.build()
-        column = 54 - pitch.LOWEST_BIN
-        board.onset[8, column] = .9
-        early = board.evidence(54, 0., .4)
-        late = board.evidence(54, .7, .9)
-        self.assertIsNotNone(early)
-        self.assertIsNotNone(late)
-        assert early is not None and late is not None
-        self.assertAlmostEqual(early.onset, 0.)
-        self.assertAlmostEqual(late.onset, .9)
-
-    def test_pitch_outside_the_model_range_reports_nothing(self):
-        """None must not be confused with 'the model saw nothing there'."""
-        board = self.build()
-        self.assertIsNone(board.evidence(pitch.LOWEST_BIN - 1, 0., .9))
-        self.assertIsNone(board.evidence(pitch.LOWEST_BIN + 88, 0., .9))
-
-    def test_window_past_the_recording_still_reports_a_frame(self):
-        """A note near the end must not fall off into a zero-width slice."""
-        board = self.build()
-        self.assertIsNotNone(board.evidence(54, 5., 9.))
-
-
 class ShippedDefaultsTests(unittest.TestCase):
     def test_setting_defaults_track_detect_notes(self):
         """A sweep compares against what inlay ships, so the two must agree."""
@@ -250,16 +203,11 @@ class ShippedDefaultsTests(unittest.TestCase):
 
 
 
-class Sounded:
-    def __init__(self, pitch):
-        self.pitch = pitch
-
-
 class PlanPositionsTests(unittest.TestCase):
     """The neck trajectory is chosen for the whole clip, not chord by chord."""
 
     def groups(self, *pitches):
-        return [[Sounded(p) for p in group] for group in pitches]
+        return [[Sounded(p, 0., .5) for p in group] for group in pitches]
 
     def test_a_seen_hand_pins_its_group(self):
         planned = plan_positions(self.groups([64], [64], [64]), [None, 12., None])

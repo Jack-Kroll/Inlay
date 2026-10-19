@@ -154,7 +154,7 @@ def estimate(output, setting):
             for start, end, midi, _ in notes]
 
 
-def _arrays(notes):
+def arrays(notes):
     """``notes`` are (start, end, midi) triples; mir_eval matches in Hz."""
     intervals = np.array([[start, end] for start, end, _ in notes], dtype=float)
     pitches = np.array([440.*2**((midi - 69)/12) for _, _, midi in notes], dtype=float)
@@ -167,9 +167,9 @@ def counts(reference, estimated, onset_tolerance=ONSET_TOLERANCE,
     import mir_eval
     if not reference or not estimated:
         return 0, len(estimated), len(reference)
-    reference_intervals, reference_pitches = _arrays(
+    reference_intervals, reference_pitches = arrays(
         [(note.start, note.end, note.pitch) for note in reference])
-    estimated_intervals, estimated_pitches = _arrays(estimated)
+    estimated_intervals, estimated_pitches = arrays(estimated)
     matches = mir_eval.transcription.match_notes(
         reference_intervals, reference_pitches, estimated_intervals, estimated_pitches,
         onset_tolerance=onset_tolerance, pitch_tolerance=pitch_tolerance, offset_ratio=None)  # type: ignore[arg-type]  # mir_eval documents None to ignore offsets.

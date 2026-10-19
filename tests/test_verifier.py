@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 
 from processing.music import verify
-from processing.music.fusion import AUDIO_STRING_WEIGHT, assign_positions
+from processing.music.fusion import Sounded, AUDIO_STRING_WEIGHT, assign_positions
 from processing.music.tuning import STANDARD_TUNING
 from processing.tools import idmt
 
@@ -163,14 +163,6 @@ class Decode(unittest.TestCase):
         self.assertGreaterEqual(out[0][0], 0.)
 
 
-class Sounded:
-    """The minimum the tab stage needs, plus audio's view of the strings."""
-
-    def __init__(self, pitch, start, end, posterior=None):
-        self.pitch, self.start, self.end, self.amplitude = pitch, start, end, 1.
-        self.string_posterior = posterior
-
-
 class AudioStringTerm(unittest.TestCase):
     def test_a_confident_posterior_moves_the_choice(self):
         # E4 is open on string 1 and fret 5 on string 2. With no hand and no
@@ -178,14 +170,14 @@ class AudioStringTerm(unittest.TestCase):
         for index, expected in ((0, 1), (1, 2)):
             posterior = np.full(6, .01, np.float32)
             posterior[index] = .95
-            notes = [Sounded(64, 0., .5, posterior)]
+            notes = [Sounded(64, 0., .5, string_posterior=posterior)]
             placed = assign_positions(notes, [], STANDARD_TUNING, 22,
                                       audio_weight=.9)
             self.assertEqual(placed[0].string, expected)
 
     def test_zero_weight_ignores_the_posterior(self):
         loud = np.zeros(6, np.float32); loud[3] = 1.
-        notes = [Sounded(64, 0., .5, loud)]
+        notes = [Sounded(64, 0., .5, string_posterior=loud)]
         with_audio = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=0.)
         without = assign_positions([Sounded(64, 0., .5)], [], STANDARD_TUNING, 22)
         self.assertEqual(with_audio[0].string, without[0].string)
@@ -197,7 +189,7 @@ class AudioStringTerm(unittest.TestCase):
 
     def test_the_posterior_is_recorded_as_evidence(self):
         posterior = np.full(6, .1, np.float32); posterior[2] = .5
-        placed = assign_positions([Sounded(64, 0., .5, posterior)], [],
+        placed = assign_positions([Sounded(64, 0., .5, string_posterior=posterior)], [],
                                   STANDARD_TUNING, 22, audio_weight=.25)
         self.assertIn('audio_string', placed[0].evidence)
         self.assertEqual(len(placed[0].evidence['audio_string']), 6)
@@ -212,7 +204,7 @@ class AudioStringTerm(unittest.TestCase):
         """
         loud = np.zeros(6, np.float32); loud[0], loud[1] = .6, .4
         quiet = np.zeros(6, np.float32); quiet[0], quiet[1] = .55, .05
-        notes = [Sounded(65, 0., .5, loud), Sounded(64, 0., .5, quiet)]
+        notes = [Sounded(65, 0., .5, string_posterior=loud), Sounded(64, 0., .5, string_posterior=quiet)]
         placed = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=.9)
         self.assertEqual([note.string for note in placed], [2, 1])
         self.assertIn('string-taken', placed[0].flags)
@@ -220,8 +212,8 @@ class AudioStringTerm(unittest.TestCase):
     def test_two_notes_still_cannot_share_a_string(self):
         # Both posteriors insist on the same string; one note has to move.
         posterior = np.zeros(6, np.float32); posterior[0] = 1.
-        notes = [Sounded(64, 0., .5, posterior.copy()),
-                 Sounded(59, 0., .5, posterior.copy())]
+        notes = [Sounded(64, 0., .5, string_posterior=posterior.copy()),
+                 Sounded(59, 0., .5, string_posterior=posterior.copy())]
         placed = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=.9)
         strings = [note.string for note in placed if note.string is not None]
         self.assertEqual(len(strings), len(set(strings)))
