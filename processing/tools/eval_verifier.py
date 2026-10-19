@@ -99,6 +99,9 @@ def main():
     parser.add_argument('--candidates', type=Path,
                         default=Path('data/verifier/candidates.npz'))
     parser.add_argument('--split', choices=['val', 'test', 'train'], default='val')
+    parser.add_argument('--domain', default=verifier_data.MIC,
+                        help="Recording chain to measure on: 'mic' as recorded, "
+                             "or 'pickup' for GuitarSet's pickup mix of the same takes")
     parser.add_argument('--thresholds', default='0.80,0.85,0.90,0.93')
     parser.add_argument('--audio-weight', type=float,
                         help='Override fusion.AUDIO_STRING_WEIGHT for this run')
@@ -112,15 +115,16 @@ def main():
     device = (torch.device(args.device) if args.device
               else torch.device('mps' if torch.backends.mps.is_available() else 'cpu'))
     candidates = verifier_data.load_candidates(args.candidates)
-    train, val, test = verifier_data.splits(candidates['players'])
+    train, val, test = verifier_data.splits(candidates['players'], candidates['names'],
+                                            domain=args.domain)
     members = {'train': train, 'val': val, 'test': test}[args.split]
     model, channels, trained_with = verify.load(args.model, device)
     cqt = args.cqt or (Path(trained_with) if trained_with else None)
     if channels > verify.CHANNELS and cqt is None:
         raise SystemExit(f'{args.model} was trained with a CQT; pass --cqt')
     print(f'{args.model} on the {args.split} split ({len(members)} excerpts), '
-          f'{channels} channels')
-    patches = verifier_data.Patches(candidates['names'], cqt=cqt)
+          f'{args.domain} audio, {channels} channels')
+    patches = verifier_data.Patches(candidates['names'], cqt=cqt, only=members)
 
     rows_all = np.flatnonzero(np.isin(candidates['excerpt'], list(members)))
     scores = np.empty(len(rows_all), np.float32)
@@ -150,7 +154,7 @@ def main():
 
     for index in sorted(members):
         name = str(candidates['names'][index])
-        excerpt = found[name]
+        excerpt = found[Path(name).name]
         with np.load(CACHE/f'{name}.npz') as stored:
             note = stored['note'].astype(np.float32)
             onset = stored['onset'].astype(np.float32)

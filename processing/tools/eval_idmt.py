@@ -31,7 +31,7 @@ def main():
     parser.add_argument('--root', type=Path, default=idmt.ROOT)
     parser.add_argument('--cache', type=Path, default=idmt.POSTERIORGRAMS)
     parser.add_argument('--model', type=Path,
-                        default=Path('runs/verifier/v2-cqt/best.pt'))
+                        default=Path('runs/verifier/v3-aug/best.pt'))
     parser.add_argument('--threshold', type=float, default=verify.SCORE_THRESHOLD)
     parser.add_argument('--audio-weight', type=float,
                         help='Override fusion.AUDIO_STRING_WEIGHT for this run')

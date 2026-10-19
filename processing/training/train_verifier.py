@@ -3,7 +3,13 @@
     uv run python -m processing.tools.cqt
     uv run python -m processing.training.verifier_data
     uv run python -m processing.training.train_verifier \
-      --cqt data/guitarset/cqt --output runs/verifier/v2-cqt --epochs 14
+      --cqt data/guitarset/cqt --output runs/verifier/v3-aug --epochs 14 \
+      --train-domains mic aug-v1 aug-v2 aug-v3 --epoch-positives 46656
+
+``--train-domains`` picks which rendered recording chains to train on and
+``--epoch-positives`` caps how many real notes an epoch draws, so adding
+augmented domains compares against the microphone alone at the same number of
+optimisation steps rather than at four times the compute.
 
 Three heads share one trunk: whether a note is attacking, how far the true
 onset is from the candidate frame, and which string played it. The string head
@@ -29,15 +35,21 @@ def pick_device(name=None):
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def epoch_sample(candidates, members, ratio, rng):
+def epoch_sample(candidates, members, ratio, rng, positives=0):
     """All positives from the split, plus ``ratio`` negatives each.
 
     Negatives are resampled every epoch, so over a run the model sees far more
     of the 25:1 majority than any one epoch holds. ``ratio`` of 0 trains on
     real notes alone, which is what the string task alone would want.
+
+    ``positives`` caps how many real notes an epoch draws. Training on four
+    augmented copies of the same excerpts otherwise quadruples an epoch, and a
+    run that takes four times as long is not a comparison.
     """
     belongs = np.isin(candidates['excerpt'], list(members))
     positive = np.flatnonzero(belongs & (candidates['label'] == 1))
+    if positives and positives < len(positive):
+        positive = rng.choice(positive, positives, replace=False)
     if ratio <= 0:
         chosen = positive.copy()
         rng.shuffle(chosen)
@@ -108,6 +120,13 @@ def main():
     parser.add_argument('--batch', type=int, default=256)
     parser.add_argument('--ratio', type=float, default=4.,
                         help='Negatives per positive each epoch')
+    parser.add_argument('--train-domains', nargs='*',
+                        help='Rendered domains to train on; every one in the '
+                             'candidate file by default')
+    parser.add_argument('--domain', default=verifier_data.MIC,
+                        help='Domain to validate on; the microphone by default')
+    parser.add_argument('--epoch-positives', type=int, default=0,
+                        help='Cap the real notes an epoch draws; 0 takes all of them')
     parser.add_argument('--lr', type=float, default=2e-3)
     parser.add_argument('--width', type=int, default=48)
     parser.add_argument('--string-weight', type=float, default=.3)
@@ -124,10 +143,21 @@ def main():
 
     device = pick_device(args.device)
     candidates = verifier_data.load_candidates(args.candidates)
-    train, val, test = verifier_data.splits(candidates['players'])
+    train, val, test = verifier_data.splits(candidates['players'], candidates['names'],
+                                            domain=args.domain)
+    if args.train_domains is not None:
+        wanted = set(args.train_domains)
+        train = {index for index in train
+                 if verifier_data.domain_of(candidates['names'][index]) in wanted}
+    domains = sorted({verifier_data.domain_of(candidates['names'][index])
+                      for index in train})
     print(f'device {device}; excerpts train {len(train)} val {len(val)} test {len(test)}')
+    print(f'training on {" ".join(domains)}; validating on {args.domain}')
     print('loading posteriorgrams into memory...', flush=True)
-    patches = verifier_data.Patches(candidates['names'], progress=True, cqt=args.cqt)
+    # Only what this run reads: with augmented variants the full set is
+    # several gigabytes, and the test split is not scored here.
+    patches = verifier_data.Patches(candidates['names'], progress=True, cqt=args.cqt,
+                                    only=train | val)
 
     model = verify.build(args.width, patches.channels).to(device)
     print(f'verifier: {sum(p.numel() for p in model.parameters())/1e6:.2f}M parameters')
@@ -136,7 +166,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     history, best = [], -1.
 
-    steps = len(epoch_sample(candidates, train, args.ratio, np.random.default_rng(0)))
+    steps = len(epoch_sample(candidates, train, args.ratio, np.random.default_rng(0),
+                             args.epoch_positives))
     steps = steps//args.batch
     schedule = torch.optim.lr_scheduler.OneCycleLR(
         optimiser, max_lr=args.lr,
@@ -144,7 +175,7 @@ def main():
 
     for number in range(1, args.epochs + 1):
         model.train()
-        rows = epoch_sample(candidates, train, args.ratio, rng)
+        rows = epoch_sample(candidates, train, args.ratio, rng, args.epoch_positives)
         started, seen, total = time.time(), 0, 0.
         for step, (patch, pitch, label, delta, string) in enumerate(
                 batches(candidates, patches, rows, args.batch, device)):
@@ -179,7 +210,8 @@ def main():
             best = metrics[args.select]
             torch.save({'model': model.state_dict(), 'width': args.width,
                         'channels': patches.channels, 'cqt': str(args.cqt or ''),
-                        'epoch': number, 'metrics': metrics}, args.output/'best.pt')
+                        'epoch': number, 'metrics': metrics, 'domains': domains},
+                       args.output/'best.pt')
     (args.output/'history.json').write_text(json.dumps(history, indent=2))
     print(f'\nbest val {args.select} {best:.4f}; wrote {args.output}/best.pt')
 

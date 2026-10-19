@@ -17,7 +17,7 @@ uv sync --locked
 
 Local datasets, clips, runs, and model weights are gitignored. The commands
 below expect the trained checkpoints at `runs/dense/fretboard-v1/best.pt` and
-`runs/verifier/v2-cqt/best.pt`. Without the verifier checkpoint, transcription
+`runs/verifier/v3-aug/best.pt`. Without the verifier checkpoint, transcription
 falls back to Basic Pitch's thresholds and says so.
 
 ## Preview the fretboard
@@ -79,12 +79,18 @@ The note verifier, from GuitarSet under `data/guitarset`:
 
 ```sh
 uv run python -m processing.tools.cqt
-uv run python -m processing.training.verifier_data
+uv run python -m processing.tools.variants --variants 3
+uv run python -m processing.training.verifier_data --domains aug-v1 aug-v2 aug-v3
 uv run python -m processing.training.train_verifier \
-  --cqt data/guitarset/cqt --output runs/verifier/v2-cqt --epochs 14
+  --cqt data/guitarset/cqt --output runs/verifier/v3-aug --epochs 14 \
+  --train-domains mic aug-v1 aug-v2 aug-v3 --epoch-positives 46656
 
 uv run python -m processing.tools.eval_verifier --split test
 ```
+
+`variants` renders augmented copies of the training excerpts — level, EQ,
+cabinet, amp drive, hiss and codec — which is what carries the string head off
+the one microphone it was trained on.
 
 ```sh
 uv run python -m unittest discover -s tests -v
@@ -104,15 +110,19 @@ checkpoint selection, and threshold choice — 8,715 notes, no video:
 |---|---:|---:|---:|
 | Basic Pitch thresholds | `.821` | `.653` | `.536` |
 | Note verifier + CQT | `.898` | `.882` | `.792` |
+| + recording-chain augmentation | `.902` | `.880` | `.794` |
 
 On IDMT-SMT-GUITAR's electric guitars, which nothing is trained on, note F1
-goes `.695` to `.803` and tab F1 `.358` to `.488`.
+goes `.695` to `.817`, string accuracy `.514` to `.634`, and tab F1 `.358` to
+`.518`.
 
 - Complete audio/video transcription accuracy has still not been measured.
   Nothing above involves the camera.
-- The verifier is trained on three hours of acoustic guitar from six players.
-  Note detection transfers to electric guitars; the string head largely does
-  not.
+- The verifier is trained on three hours of acoustic guitar from six players,
+  augmented into a wider range of recording chains but not a wider range of
+  guitars. Note detection transfers to electric guitars well; the string head
+  only partly, and on two of eight IDMT subsets it is still beaten by musical
+  context alone.
 - Strings are interpolated rather than detected.
 - Capos, bends, slides, barre chords, and alternate tunings are not inferred.
 

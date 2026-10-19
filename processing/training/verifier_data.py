@@ -8,6 +8,13 @@ exactly what it will be asked to rank.
 Splits hold whole players out. A player's guitar, touch and recording session
 repeat across all 60 of their excerpts, so splitting any other way reports a
 model's memory rather than its accuracy.
+
+An excerpt can appear more than once, under a *domain*: the microphone as
+recorded, GuitarSet's pickup mix of the same performance, or an augmented
+render of either (``processing.tools.variants``). Every domain of one excerpt
+shares its annotation -- the audio moved, the notes did not -- and the domain
+a number is measured on is always named, because a model trained on a
+synthesised amp and measured on one would only be describing the augmenter.
 """
 from __future__ import annotations
 import argparse
@@ -24,13 +31,41 @@ TOLERANCE = .05
 TRAIN_PLAYERS = ('00', '01', '02', '03')
 VAL_PLAYERS = ('04',)
 TEST_PLAYERS = ('05',)
+# The microphone excerpts everything was measured on before domains existed.
+# They keep the bare name, so the caches already on disk still resolve.
+MIC = 'mic'
 
 
-def splits(players, train=TRAIN_PLAYERS, val=VAL_PLAYERS, test=TEST_PLAYERS):
-    """Excerpt indices per split, by player."""
+def variant_name(domain, name):
+    """One excerpt's cache name within ``domain``.
+
+    A domain is a directory inside each cache, so a single name resolves a
+    posteriorgram and a CQT at once and ``Patches`` needs to know nothing
+    about where the audio came from.
+    """
+    return str(name) if domain == MIC else f'{domain}/{name}'
+
+
+def domain_of(name):
+    """Which domain a cache name belongs to."""
+    name = str(name)
+    return name.rsplit('/', 1)[0] if '/' in name else MIC
+
+
+def splits(players, names=None, train=TRAIN_PLAYERS, val=VAL_PLAYERS,
+           test=TEST_PLAYERS, domain=MIC):
+    """Excerpt indices per split: every domain to train on, one to measure on.
+
+    Training takes whichever domains the candidate file holds, which is how
+    augmentation gets in. Validation and test take ``domain`` alone, so a
+    number always names the recording chain it was measured on and an
+    augmented render of a held-out player cannot quietly become one.
+    """
+    here = ([domain_of(name) == domain for name in names] if names is not None
+            else [True]*len(players))
     return ({i for i, p in enumerate(players) if p in train},
-            {i for i, p in enumerate(players) if p in val},
-            {i for i, p in enumerate(players) if p in test})
+            {i for i, p in enumerate(players) if p in val and here[i]},
+            {i for i, p in enumerate(players) if p in test and here[i]})
 
 
 def load_candidates(path=Path('data/verifier/candidates.npz')):
@@ -46,11 +81,15 @@ class Patches:
     roughly 100 ms for the training step itself.
     """
 
-    def __init__(self, names, cache=CACHE, progress=False, cqt=None):
+    def __init__(self, names, cache=CACHE, progress=False, cqt=None, only=None):
         from basic_pitch.note_creation import model_frames_to_time
         self.prepared = []
         self.channels = verify.CHANNELS + (verify.CQT_CHANNELS if cqt else 0)
         for index, name in enumerate(names):
+            if only is not None and index not in only:
+                # Indexed by excerpt, so a skipped one still needs its place.
+                self.prepared.append(None)
+                continue
             with np.load(Path(cache)/f'{name}.npz') as stored:
                 note, onset = stored['note'], stored['onset']
                 contour = stored['contour']
@@ -75,9 +114,9 @@ class Patches:
 
 
 def _one(job):
-    index, name, annotation = job
+    index, name, annotation, cache = job
     from basic_pitch.note_creation import model_frames_to_time
-    with np.load(CACHE/f'{name}.npz') as stored:
+    with np.load(Path(cache)/f'{name}.npz') as stored:
         onset = stored['onset'].astype(np.float32)
         note = stored['note'].astype(np.float32)
         contour_frames = stored['contour'].shape[0]
@@ -123,12 +162,30 @@ def main():
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--output', type=Path, default=Path('data/verifier/candidates.npz'))
     parser.add_argument('--workers', type=int, default=8)
+    parser.add_argument('--domains', nargs='*', default=[],
+                        help='Extra rendered domains to add, e.g. pickup aug-v1')
+    parser.add_argument('--measure-domains', nargs='*', default=[],
+                        help='Domains to add for held-out players too, to measure on')
     args = parser.parse_args()
 
+    cache = args.root/'posteriorgrams'
     found, _ = guitarset.excerpts(args.root)
     found = sorted(found, key=lambda excerpt: excerpt.name)
-    jobs = [(index, excerpt.name, excerpt.annotation)
-            for index, excerpt in enumerate(found)]
+    # One row per (excerpt, variant). Candidates are peak-picked from each
+    # render's own posteriorgram, because a frame that is a peak in the clean
+    # audio need not be one once the audio has been through an amp, and a
+    # patch the runtime would never centre on teaches nothing.
+    rendered = [(excerpt, excerpt.name) for excerpt in found]
+    for domain in dict.fromkeys(args.domains + args.measure_domains):
+        for excerpt in found:
+            if (excerpt.player not in TRAIN_PLAYERS
+                    and domain not in args.measure_domains):
+                continue
+            name = variant_name(domain, excerpt.name)
+            if (cache/f'{name}.npz').is_file():
+                rendered.append((excerpt, name))
+    jobs = [(index, name, excerpt.annotation, cache)
+            for index, (excerpt, name) in enumerate(rendered)]
     parts, references = [], 0
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         for number, part in enumerate(pool.map(_one, jobs, chunksize=2), 1):
@@ -137,13 +194,18 @@ def main():
             if number % 60 == 0:
                 print(f'{number}/{len(jobs)}', flush=True)
     merged = {key: np.concatenate([part[key] for part in parts]) for key in parts[0]}
-    merged['names'] = np.array([excerpt.name for excerpt in found])
-    merged['players'] = np.array([excerpt.player for excerpt in found])
-    merged['styles'] = np.array([excerpt.style for excerpt in found])
+    merged['names'] = np.array([name for _, name in rendered])
+    merged['players'] = np.array([excerpt.player for excerpt, _ in rendered])
+    merged['styles'] = np.array([excerpt.style for excerpt, _ in rendered])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.output, **merged)  # type: ignore[arg-type]  # ** collides with savez's own allow_pickle keyword.
     positives = int(merged['label'].sum())
-    print(f'\n{len(merged["label"])} candidates, {positives} positive, '
+    counts = {}
+    for _, name in rendered:
+        counts[domain_of(name)] = counts.get(domain_of(name), 0) + 1
+    print(f'\n{len(rendered)} excerpts (' +
+          ', '.join(f'{count} {domain}' for domain, count in counts.items()) + '), '
+          f'{len(merged["label"])} candidates, {positives} positive, '
           f'{references} reference notes')
     print(f'  negatives per positive: '
           f'{(len(merged["label"]) - positives)/max(1, positives):.1f}')

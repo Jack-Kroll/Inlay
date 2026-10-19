@@ -106,6 +106,10 @@ SEMITONES = 88
 def spectrum(audio, sample_rate=SAMPLE_RATE):
     """A CQT of one recording, three bins per semitone from A0.
 
+    ``audio`` is a path to read or a mono waveform already at ``sample_rate``;
+    training augmentation hands over a waveform it has just filtered, and
+    going back through a file would be the only difference between the two.
+
     Basic Pitch's heads describe pitch, not tone: two strings sounding the same
     pitch differ in brightness and inharmonicity, and that lives in the
     spectrum the network already reduced away. Stacking this on as extra patch
@@ -117,7 +121,8 @@ def spectrum(audio, sample_rate=SAMPLE_RATE):
     recording's gain does not change what a patch looks like.
     """
     import librosa
-    wave, _ = librosa.load(str(audio), sr=sample_rate, mono=True)
+    wave = (np.asarray(audio, np.float32) if isinstance(audio, np.ndarray)
+            else librosa.load(str(audio), sr=sample_rate, mono=True)[0])
     magnitude = np.abs(librosa.cqt(
         wave, sr=sample_rate, hop_length=HOP,
         fmin=float(librosa.midi_to_hz(LOWEST_BIN)),
