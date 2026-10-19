@@ -24,8 +24,11 @@ reflection, exposure, noise, blur, and synthetic covers.
 Synthetic covers teach completion of known geometry. They do not prove
 accuracy under real hand occlusion.
 
-`best.pt` contains the lowest-validation-loss model. `last.pt` also preserves
-optimizer, scheduler, scaler, and random state for resuming:
+Training writes `last.pt` every epoch and `best.pt` whenever validation
+improves. Both carry the same fields -- model, optimizer, scheduler, scaler and
+random state -- so either can be resumed from; they differ only in which epoch
+they hold. Resume from `last.pt` to continue where a run stopped, or from
+`best.pt` to go back to its best epoch:
 
 ```sh
 uv run python -m processing.training.train \
