@@ -432,6 +432,13 @@ give. `dataset3` is the one subset where that matters enough to lose.
   flaw, and neither would real recordings played high up a neck.
   `augment.neck_shift` and `variants --shift` are kept for the first of those.
 
+  The same trap is waiting for any augmentation that rescales time, since
+  rescaling time is rescaling frequency: it is what makes the labels follow so
+  cleanly, and it is what makes the timbre a lie. Stretching an excerpt to
+  change its tempo would move every resonance down by the same ratio. That is
+  worth knowing before reaching for it, because the label bookkeeping looks so
+  much safer than the acoustics are.
+
 - **GuitarSet's hex-pickup stems.** The debleeded hex pickup records each string
   on its own channel; measured over isolated notes, 98% of a string's energy
   lands on its own channel, so a remix at random relative levels has string
@@ -456,13 +463,15 @@ give. `dataset3` is the one subset where that matters enough to lose.
 
 ### A note on how many configurations IDMT scored
 
-IDMT is meant to be measured once. **Seven** have been scored against it: five
+IDMT is meant to be measured once. **Nine** have been scored against it: six
 training runs, then the whole-onset assignment, then the same assignment with
-the audio term off, which is the "context" column above. The assignment itself
-was chosen entirely on GuitarSet's validation player — IDMT saw one candidate,
-once, and the second run only measures a baseline the earlier table had got
-wrong. The per-subset figures on 76 and 78 notes should still be read with the
-total in mind: `dataset3` moving .654 → .605 is sixteen notes.
+the audio term off, which is the "context" column above, and then the
+neck-shifted run again under the new assignment so that comparison was not
+being made across two different fusion rules. The assignment itself was chosen
+entirely on GuitarSet's validation player — IDMT saw one candidate, once, and
+two of the nine only re-measure something an earlier table had got wrong. The
+per-subset figures on 73 to 78 notes should still be read with the total in
+mind: on `dataset3`, sixteen notes move it by five points.
 
 ## Limits
 
