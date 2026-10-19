@@ -17,8 +17,9 @@ The suite covers model training behavior, partial labels, letterboxing, fret
 decoding, numbering, tracking expiry, projective transforms, mirroring, pitch
 decoding, tab constraints, rendering, audio muxing, custom tunings, visual
 rescue, verifier peak-picking and patch geometry, CQT time alignment, note
-decoding and re-pluck handling, the audio string term, IDMT parsing, and the
-training augmentation's filter responses, causality and determinism.
+decoding and re-pluck handling, the audio string term, the whole-onset string
+match (checked against brute force), IDMT parsing, and the training
+augmentation's filter responses, causality and determinism.
 
 ```sh
 uv run python -m unittest discover -s tests -v
@@ -40,36 +41,42 @@ training, checkpoint selection, or threshold choice; 8,715 notes, no video.
 
 | | note F1 | string | tab F1 |
 |---|---:|---:|---:|
-| Basic Pitch thresholds | `.821` | `.653` | `.536` |
+| Basic Pitch thresholds | `.821` | `.654` | `.537` |
 | Note verifier + CQT | `.898` | `.882` | `.792` |
-| + recording-chain augmentation | `.902` | `.880` | `.794` |
+| + recording-chain augmentation | `.902` | `.881` | `.794` |
+
+The middle row predates the whole-onset string assignment and was not
+re-measured; the other two are current.
 
 - Basic Pitch held-out GuitarSet F1 over all 312 non-tuning excerpts: `.779`.
-- Blind string assignment with perfect pitches and no audio timbre: `.698`.
+- Blind string assignment with perfect pitches and no audio timbre: `.698`
+  note by note, `.707` solving each onset as a whole, over 62,476 notes.
 - Cross-dataset, IDMT-SMT-GUITAR electric guitars, 5,164 notes, nothing
-  trained on: note F1 `.695` -> `.817`, string `.514` -> `.634`, tab F1 `.358`
-  -> `.518`. Augmentation supplied the last `.803` -> `.817` and `.607` ->
-  `.634` of that; five configurations were scored against IDMT, which is more
-  than a held-out set should see.
+  trained on: note F1 `.695` -> `.817`, string `.515` -> `.638`, tab F1 `.358`
+  -> `.521`. Augmentation supplied `.803` -> `.817` and `.607` -> `.634` of
+  that, and assigning each onset's strings as a whole the last `.634` ->
+  `.638`. Seven configurations have been scored against IDMT, which is more
+  than a held-out set should see; the assignment change was chosen entirely on
+  GuitarSet's validation player and then measured on IDMT once.
 - Cross-transducer within GuitarSet, validation player on the pickup mix rather
   than the microphone: string `.785` -> `.813` with augmentation, against
   `.861` on the microphone. The gap a change of transducer costs narrowed from
   8.2 points to 4.8.
 - The runtime path was checked against the measurement harness on 12 test
   excerpts: `.879` -> `.911` note F1, same direction and magnitude.
-- Unit and integration suite: 171 tests.
+- Unit and integration suite: 184 tests.
 
 ## Not established
 
 - End-to-end audio/video transcription accuracy. Every number above is audio
   against annotated audio; none of them involve the camera.
 - Whether the audio string posterior holds up on an unfamiliar instrument. On
-  IDMT it gains 12 points rather than 23, and on two of eight subsets it is
-  still worse than musical context alone. Neither remaining case is a timbre
-  problem: one is strummed chords where context is nearly sufficient and the
-  fusion of the two is worse than either alone, the other is 76 notes played
-  high up a neck GuitarSet barely visits. See
-  [the note verifier](note-verifier.md).
+  IDMT it gains 12 points rather than 23, and on one of eight subsets it is
+  still worse than musical context alone: 76 notes played high up a neck
+  GuitarSet barely visits, where it costs 24 points. An earlier count of two
+  such subsets was wrong — it read "context alone" off the Basic Pitch
+  baseline, a different and easier set of notes than the one being scored. See
+  [the note verifier](note-verifier.md#per-subset).
 - Whether GuitarSet's hex-pickup stems help. Measured: they give the string
   head more than anything else tried and cost note detection more than they
   give, and are not used.

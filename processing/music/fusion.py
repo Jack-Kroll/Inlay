@@ -257,14 +257,77 @@ def _score(string, fret, contacts, position, posterior=None,
     return (1 - audio_weight)*geometry + audio_weight*heard, finger, contact
 
 
+def _match_strings(scored, strings):
+    """Choose one string per note so the whole onset scores highest together.
+
+    Walking the spellings best-first gives each note the best string still
+    free, which is optimal for that note and not for the chord: one confident
+    mistake takes a string away from the note that owned it, that note takes
+    the next, and a single wrong nudge can respell a whole voicing. Deciding
+    the onset in one go makes the mistake pay for the disruption it causes, so
+    it has to outscore the rest of the chord rather than just the note it
+    lands on.
+
+    This is exact rather than another heuristic. The only thing the notes
+    before this one leave behind is *which strings they used*, and a tuning
+    has at most twelve, so a dynamic program over the subsets of strings
+    already taken finds the best total in well under a millisecond.
+
+    Returns ``{note index: (string, fret)}``, leaving out any note it could
+    not place -- an onset with more notes than strings -- for the caller to
+    resolve one at a time.
+    """
+    # The best spelling of each note on each string. A pitch sounds at one
+    # fret per string, so this only drops ties, never real alternatives.
+    best = {}
+    for score, _, index, string, fret, _ in scored:
+        key = (index, string)
+        if key not in best or score > best[key][0]:
+            best[key] = (score, fret)
+    order = sorted({index for index, _ in best})
+    # state[mask] = (total score, notes placed, where it came from) over the
+    # notes considered so far, where ``mask`` is the set of strings they used.
+    # More notes placed breaks a tie, so a note is never dropped for nothing.
+    state = {0: (0., 0, (0, None))}
+    history = []
+    for index in order:
+        following = {}
+        for mask, (total, placed, _) in state.items():
+            step = (total, placed, (mask, None))   # Leave this note unplaced.
+            if mask not in following or step[:2] > following[mask][:2]:
+                following[mask] = step
+            for string in range(1, strings + 1):
+                bit = 1 << (string - 1)
+                found = best.get((index, string))
+                if found is None or mask & bit:
+                    continue
+                step = (total + found[0], placed + 1, (mask, (string, found[1])))
+                taken = mask | bit
+                if taken not in following or step[:2] > following[taken][:2]:
+                    following[taken] = step
+        history.append(following)
+        state = following
+    chosen = {}
+    if not history:
+        return chosen
+    mask = max(state, key=lambda key: state[key][:2])
+    for index, step in zip(reversed(order), reversed(history)):
+        _, _, (previous, taken) = step[mask]
+        if taken is not None:
+            chosen[index] = taken
+        mask = previous
+    return chosen
+
+
 def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
                      board=True, hand=True, occupied=(), position=None,
                      audio_weight=AUDIO_STRING_WEIGHT):
     """Choose one (string, fret) per simultaneous note.
 
-    No two notes may share a string, since one string sounds one pitch. Notes
-    are resolved best-scoring first; a note pushed off its preferred string by a
-    stronger audio event is flagged rather than silently respelled.
+    No two notes may share a string, since one string sounds one pitch. The
+    onset is solved as a whole rather than note by note (see
+    ``_match_strings``); a note pushed off its preferred string by the rest of
+    the chord is flagged rather than silently respelled.
 
     ``occupied`` holds notes still ringing from earlier onsets. Those do not
     block the string: plucking a string again is what stops the note already on
@@ -300,12 +363,16 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
     best_choice = {}
     for row in scored:
         best_choice.setdefault(row[2], (row[3], row[4]))
-    # Greedy assignment: walk combinations best-first, giving each note the
-    # highest-scoring spelling whose string is still free.
+    # Solve the onset as a whole, then apply what it decided. Its spellings go
+    # first: a note it could not place must not take a string it promised to
+    # one it did, and falls back to the best free spelling left.
+    chosen = _match_strings(scored, len(tuning))
+    ordered = ([row for row in scored if chosen.get(row[2]) == (row[3], row[4])]
+               + [row for row in scored if row[2] not in chosen])
     taken_note = set()
     simultaneous = {id(note) for note in results}
     sounding = list(occupied)
-    for score, contact, index, string, fret, finger in scored:
+    for score, contact, index, string, fret, finger in ordered:
         note = results[index]
         if index in taken_note:
             continue

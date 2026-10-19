@@ -8,7 +8,7 @@ from processing.music.fretboard import (
     board_transform, fret_ratio, ratio_to_fret, DEFAULT_STRING_INSET,
 )
 from processing.music.fusion import (
-    assign_positions, finger_contacts, unexplained_contacts,
+    _match_strings, assign_positions, finger_contacts, unexplained_contacts,
 )
 from processing.music.hands import FINGERTIPS, Hand, fretting_hand
 from processing.music.pitch import NoteEvent
@@ -434,6 +434,63 @@ class OverlayTests(unittest.TestCase):
         frame = np.zeros((360, 640, 3), np.uint8)
         draw_hand(frame, np.tile(np.array([100., 100.], np.float32), (21, 1)), contacts)
         self.assertTrue((frame > 0).any())
+
+
+class OnsetAssignmentTests(unittest.TestCase):
+    """The whole-onset match behind ``assign_positions``."""
+
+    @staticmethod
+    def rows(scores):
+        """``scores`` maps (note, string) to a score; frets are ignored here."""
+        return sorted(((score, 0., note, string, 0, None)
+                       for (note, string), score in scores.items()),
+                      key=lambda row: -row[0])
+
+    def test_match_is_exact_against_brute_force(self):
+        """A dynamic program is only worth having if it really is optimal."""
+        from itertools import permutations
+        rng = np.random.default_rng(7)
+        for notes, strings in ((2, 3), (3, 3), (4, 6), (6, 6)):
+            for _ in range(20):
+                scores = {(n, s + 1): float(rng.random())
+                          for n in range(notes) for s in range(strings)
+                          # Not every note can be played on every string.
+                          if rng.random() < .8}
+                chosen = _match_strings(self.rows(scores), strings)
+                mine = sum(scores[note, string] for note, (string, _) in chosen.items())
+                best = max(
+                    sum(scores[note, string]
+                        for note, string in zip(range(notes), order)
+                        if (note, string) in scores)
+                    for order in permutations(range(1, strings + 1), notes))
+                self.assertAlmostEqual(mine, best, places=9)
+                self.assertEqual(len({s for s, _ in chosen.values()}), len(chosen))
+
+    def test_a_chord_outvotes_one_confident_note(self):
+        """Greedily, note 0 takes string 1 and note 1 settles for scraps.
+
+        Taken together, note 0 gives up little by moving and note 1 gives up a
+        lot, so the pair scores higher the other way round. That is the whole
+        point of deciding the onset at once.
+        """
+        scores = {(0, 1): .6, (0, 2): .4, (1, 1): .55, (1, 2): .05}
+        chosen = _match_strings(self.rows(scores), 6)
+        self.assertEqual({note: string for note, (string, _) in chosen.items()},
+                         {0: 2, 1: 1})
+
+    def test_a_note_is_never_dropped_for_nothing(self):
+        """Equal totals place more notes: silence is not a better explanation."""
+        scores = {(0, 1): .5, (1, 1): .5, (1, 2): 0.}
+        chosen = _match_strings(self.rows(scores), 6)
+        self.assertEqual(len(chosen), 2)
+
+    def test_more_notes_than_strings_fills_every_string(self):
+        # Seven pitches that between them reach all six strings; one must wait.
+        notes = [NoteEvent(0., 1., pitch, .8) for pitch in range(59, 66)]
+        placed = assign_positions(notes, [], position=5.)
+        strings = [note.string for note in placed if note.string is not None]
+        self.assertEqual(sorted(strings), [1, 2, 3, 4, 5, 6])
+        self.assertEqual(sum('no-free-string' in note.flags for note in placed), 1)
 
 
 if __name__ == '__main__':

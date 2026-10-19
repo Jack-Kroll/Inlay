@@ -159,7 +159,7 @@ nothing else:
 | Basic Pitch thresholds | .821 | .808 | .834 | .653 | .536 | .656 | .553 |
 | Verifier | .891 | .884 | .898 | .861 | .767 | .860 | .905 |
 | Verifier + CQT | .898 | .902 | .894 | .882 | .792 | .880 | .933 |
-| + augmentation | .902 | .909 | .896 | .880 | .794 | .878 | .947 |
+| + augmentation | .902 | .909 | .896 | .881 | .794 | .879 | .947 |
 
 "string" is the share of pitch-matched notes placed on the right string;
 "fretted" and "open" split that by whether the note was really open. "tab F1"
@@ -170,17 +170,18 @@ Raising the threshold to .90 trades recall for precision at the same F1
 
 The last row is what ships. Augmentation was added for the electric guitars of
 the next section, and on GuitarSet it is close to free: note F1 .898 → .902,
-tab F1 .792 → .794, open strings .933 → .947, against a string accuracy of .880
-where it was .882. Two tenths of a point on 7,789 matched notes is sixteen of
+tab F1 .792 → .794, open strings .933 → .947, against a string accuracy of .881
+where it was .882. One tenth of a point on 7,789 matched notes is eight of
 them — but it is a regression rather than an improvement, and the gain on
 other instruments is the reason to take it.
 
 On player 04, which chose the threshold and the audio weight: note F1 .754 →
-.817, string .611 → .867, tab F1 .461 → .708.
+.824, string .620 → .862, tab F1 .467 → .711.
 
-Turning the audio string term off but keeping the verifier's notes gives note
-F1 .898 with string .644 and tab F1 .579, so roughly half the tab improvement
-is better notes and half is the string head.
+Turning the audio string term off but keeping the verifier's notes gives
+string .668 and tab F1 .603, against .537 for the Basic Pitch baseline and
+.794 for the whole thing. Better notes are worth .066 of the tab F1 gain and
+the string head .191, so this is mostly the string head.
 
 ## Generalisation
 
@@ -193,18 +194,20 @@ and pickup. 5,164 annotated notes, none of them trained on.
 | Basic Pitch thresholds | .695 | .590 | .847 | .514 | .358 |
 | Verifier | .806 | .803 | .809 | .586 | .473 |
 | Verifier + CQT | .803 | .847 | .764 | .607 | .488 |
-| + augmentation | .817 | .863 | .775 | .634 | .518 |
+| + augmentation | .817 | .863 | .775 | .638 | .521 |
 
 Note detection transfers: +10.8 points of F1 on instruments and a recording
 chain the model never saw, almost all of it precision.
 
-**The string head transfers much less.** Before augmentation it gained 9.3
-points here against 22.9 on GuitarSet, and on three of eight subsets it was
-worse than musical context alone. Gating the term on the head's own confidence
-does not help: at a .9 gate IDMT string accuracy *drops* to .580, so the head
-is confidently wrong rather than uncertain. Those cues were specific to the six
-acoustic guitars and the one microphone it was trained on, and the verifier
-trained with no augmentation at all. That is what the next section is about.
+**The string head transfers much less.** It is worth 12.4 points of string
+accuracy here — .514 without it, .638 with it — against 21.3 on GuitarSet's
+test player, and on one of eight subsets it is worse than musical context
+alone. Before augmentation the gap was wider still. Gating the term on the
+head's own confidence does not help: at a .9 gate IDMT string accuracy *drops*
+to .580, so the head is confidently wrong rather than uncertain. Those cues
+were specific to the six acoustic guitars and the one microphone it was
+trained on, and the verifier trained with no augmentation at all. That is what
+the next section is about.
 
 IDMT-SMT-GUITAR is CC BY-NC-ND 4.0. It is used only to measure. Nothing is
 trained on it and nothing derived from it ships.
@@ -277,7 +280,10 @@ the pickup is the one that is cheap.
 ### What each source of data was worth
 
 Every run below trains on 960 excerpts and draws the same 46,656 positives per
-epoch, so only the source of the extra 720 differs. Measured on IDMT:
+epoch, so only the source of the extra 720 differs. Measured on IDMT, with the
+note-by-note string assignment these runs were compared under; the shipped
+whole-onset assignment moves the last row of the table above by +.004 string
+and +.003 tab F1, and is not worth re-measuring four training runs to restate:
 
 | trains on | note F1 | string | audio alone | tab F1 | subsets losing |
 |---|---:|---:|---:|---:|---:|
@@ -286,6 +292,13 @@ epoch, so only the source of the extra 720 differs. Measured on IDMT:
 | + 3 hex remixes | .788 | .638 | .638 | .503 | 2 of 8 |
 | + 2 augmented, 1 hex remix | .780 | .631 | .622 | .492 | 3 of 8 |
 | + 3 augmented, harder chain | .832 | .623 | .605 | .518 | 2 of 8 |
+
+The "subsets losing" column counts subsets against the Basic Pitch baseline's
+string accuracy, which is a different set of notes — see
+[per subset](#an-earlier-version-of-this-table-compared-the-wrong-things). It
+is left as measured because it is a comparison *between these five runs*, all
+scored the same way; the shipped row loses one subset, not two, when the
+comparison is made on matched notes.
 
 "audio alone" is the string head's own argmax, without musical context mixed
 in; it is the cleaner measure of the head itself, and augmentation moves it
@@ -299,33 +312,72 @@ accuracy to .862 from .880, so it is not shipped.
 
 ### Per subset
 
-| subset | notes | context | shipped | augmented | audio alone |
+String accuracy per subset, all of it over the same matched notes:
+
+| subset | notes | context | audio alone | note by note | whole onset |
 |---|---:|---:|---:|---:|---:|
-| `Fender Strat Clean Neck SC` | 78 | .449 | .615 | .628 | .603 |
-| `Fender Strat Clean Neck SC Chords` | 227 | .751 | .706 | .718 | .740 |
-| `Ibanez Power Strat Clean Bridge HU` | 78 | .474 | .679 | .603 | .628 |
-| `Ibanez … Bridge HU Chord` | 230 | .772 | .754 | .791 | .743 |
-| `Ibanez … Bridge+Neck SC` | 77 | .468 | .675 | .701 | .688 |
-| `Ibanez Power Strat Clean Neck HU` | 78 | .462 | .718 | .667 | .667 |
-| `dataset2` | 3,159 | .481 | .583 | .616 | .596 |
-| `dataset3` | 76 | .818 | .654 | .605 | .579 |
+| `Fender Strat Clean Neck SC` | 78 | .474 | .603 | .628 | .628 |
+| `Fender Strat Clean Neck SC Chords` | 227 | .678 | .740 | .718 | **.749** |
+| `Ibanez Power Strat Clean Bridge HU` | 78 | .474 | .628 | .603 | .603 |
+| `Ibanez … Bridge HU Chord` | 230 | .774 | .743 | .791 | .787 |
+| `Ibanez … Bridge+Neck SC` | 77 | .468 | .688 | .701 | .701 |
+| `Ibanez Power Strat Clean Neck HU` | 78 | .474 | .667 | .667 | .667 |
+| `dataset2` | 3,159 | .478 | .596 | .616 | .619 |
+| `dataset3` | 76 | .921 | .579 | .605 | .605 |
 
-Two subsets still lose to musical context, down from three, and neither is a
-timbre problem:
+"whole onset" is what ships; "note by note" is the assignment it replaced, see
+[tab logic](tab-logic.md#the-whole-onset-is-assigned-at-once). "context" is
+the same decode with the audio term switched off, and "audio alone" is the
+string head's own argmax, which no assignment rule touches.
 
-- **`Fender Strat Clean Neck SC Chords`** is strummed six-string chords, 12.1
-  notes per onset, every fret from 0 to 11. A fully voiced barre chord has
-  essentially one plausible spelling, so context alone reaches .751 — and the
-  string head reaches .740 on its own, yet the two *fused* land at .718, below
-  either. That is the fusion weight on saturated chords, not the string head,
-  and `AUDIO_STRING_WEIGHT` was left alone because moving it means re-measuring
-  both corpora. It is the clearest remaining lead.
-- **`dataset3`** is 76 notes of classical repertoire on an Ibanez RG, with
-  14.4% of its notes above fret 12 where GuitarSet has 1.2% above fret 12 and
-  0.1% above fret 15. It is out of distribution in neck position rather than in
-  tone, which no amount of EQ can fix. Resampling an excerpt to shift it up the
-  neck — scaling every annotated time by the same ratio, so onsets stay sharp
-  and labels stay exact — would address it and is untried.
+#### An earlier version of this table compared the wrong things
+
+The "context" column used to be read off the Basic Pitch baseline row, which
+is a *different and easier set of notes*: on the chord subset that baseline
+matched at precision .558 and recall .880, against .850 and .938 for the
+verifier. Context was not scoring .751 on the notes the fusion was scoring
+.718 on — it was scoring .751 on a smaller, cleaner selection of them. Asked
+on the verifier's own notes, with the audio term turned off, context alone
+reaches .678. So fusion was ahead of context on that subset even before this
+change, rather than three points behind it. (The .678 is measured with the
+shipped assignment; the fair note-by-note figure was not measured, and
+switching the assignment moved the Basic Pitch row's own context score by
+.010, so the gap is not an artifact of that.)
+
+That correction also changes the count: **one** subset loses to musical
+context, not two.
+
+#### Saturated chords
+
+The chord subset was still the weakest fusion in the corpus, and the
+mechanism named for it was real. `Fender Strat Clean Neck SC Chords` is
+strummed six-string chords, 12.1 notes per onset, every fret from 0 to 11.
+Resolving an onset note by note, best-scoring first, let one confident
+mistake take a string from the note that owned it and push that note onto the
+next — on a voicing that fills every string there is nowhere for the
+displaced notes to go but each other's strings. Assigning the whole onset at
+once takes that subset .718 → **.749** and the corpus .634 → .638, with no
+subset moving down by more than .004.
+
+What was *not* the mechanism is polyphony's effect on the weight. The plan
+was to taper `AUDIO_STRING_WEIGHT` towards zero as an onset fills up, on the
+theory that context tightens as a voicing saturates. GuitarSet says the
+opposite — a full voicing is where the string head is strongest and context
+is weakest — and the taper costs 1.5 points there. It is written up under
+[rejected ideas](tab-logic.md#rejected-ideas) in the tab logic.
+`AUDIO_STRING_WEIGHT` is unchanged at .25.
+
+#### The one subset that still loses
+
+`dataset3` is 76 notes of classical repertoire on an Ibanez RG, with 14.4% of
+its notes above fret 12 where GuitarSet has 1.2% above fret 12 and 0.1% above
+fret 15. It is out of distribution in neck position rather than in tone, which
+no amount of EQ can fix. Context alone places .921 of those notes and the
+string head .579, so the audio term costs 24 points here and this is the one
+place in the corpus where it is a liability rather than a help. Resampling an
+excerpt to shift it up the neck — scaling every annotated time by the same
+ratio, so onsets stay sharp and labels stay exact — would address it and is
+untried.
 
 ## Rejected ideas
 
@@ -353,10 +405,13 @@ timbre problem:
 
 ### A note on how many configurations IDMT scored
 
-IDMT is meant to be measured once. Five were scored against it here, because
-the target was defined in terms of its numbers and the pickup proxy disagreed
-with it on one comparison. The per-subset figures on 76 and 78 notes should be
-read with that in mind: `dataset3` moving .654 → .605 is sixteen notes.
+IDMT is meant to be measured once. **Seven** have been scored against it: five
+training runs, then the whole-onset assignment, then the same assignment with
+the audio term off, which is the "context" column above. The assignment itself
+was chosen entirely on GuitarSet's validation player — IDMT saw one candidate,
+once, and the second run only measures a baseline the earlier table had got
+wrong. The per-subset figures on 76 and 78 notes should still be read with the
+total in mind: `dataset3` moving .654 → .605 is sixteen notes.
 
 ## Limits
 
@@ -366,7 +421,7 @@ read with that in mind: `dataset3` moving .654 → .605 is sixteen notes.
 - Trained on 3 hours of acoustic guitar from six players, augmented into a
   wider range of recording chains but not a wider range of guitars. The string
   head should still be treated with suspicion on an unfamiliar instrument:
-  .880 on a held-out GuitarSet player, .634 on IDMT's electrics.
+  .881 on a held-out GuitarSet player, .638 on IDMT's electrics.
 - The verifier answers whether a note started. Offsets still come from the
   frame head and are not measured.
 - Notes 60–100 ms apart remain hard; peak-picking cannot separate two attacks
@@ -374,6 +429,8 @@ read with that in mind: `dataset3` moving .654 → .605 is sixteen notes.
 - Augmentation covers level, EQ, cabinet, amp drive, hiss and codec. It does
   not cover neck position, which is where the one remaining badly-losing IDMT
   subset sits.
-- On fully voiced chords the audio string term and musical context are each
-  better alone than fused. The fusion weight is a single global constant and
-  does not know how many notes share an onset.
+- The fusion weight is a single global constant. Polyphony turned out not to
+  be what it should vary with, but *how far the instrument is from GuitarSet*
+  plainly is: on `dataset3` the audio term costs 24 points of string accuracy
+  and nothing available at that point can tell. Gating on the head's own
+  confidence does not work, so there is no known handle on this yet.

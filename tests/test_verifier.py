@@ -202,6 +202,21 @@ class AudioStringTerm(unittest.TestCase):
         self.assertIn('audio_string', placed[0].evidence)
         self.assertEqual(len(placed[0].evidence['audio_string']), 6)
 
+    def test_one_confident_note_does_not_respell_the_chord_around_it(self):
+        """A wrong-but-confident note has to outscore the whole onset.
+
+        Both notes can take string 1 or string 2. Note by note the F4 wins
+        string 1 outright and the E4 is left with what remains; between them
+        the F4 loses almost nothing by moving and the E4 loses most of its
+        confidence, so the pair is better off the other way round.
+        """
+        loud = np.zeros(6, np.float32); loud[0], loud[1] = .6, .4
+        quiet = np.zeros(6, np.float32); quiet[0], quiet[1] = .55, .05
+        notes = [Sounded(65, 0., .5, loud), Sounded(64, 0., .5, quiet)]
+        placed = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=.9)
+        self.assertEqual([note.string for note in placed], [2, 1])
+        self.assertIn('string-taken', placed[0].flags)
+
     def test_two_notes_still_cannot_share_a_string(self):
         # Both posteriors insist on the same string; one note has to move.
         posterior = np.zeros(6, np.float32); posterior[0] = 1.
