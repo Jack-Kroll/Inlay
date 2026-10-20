@@ -93,9 +93,15 @@ def main():
     parser.add_argument('--domain', default=verifier_data.MIC,
                         help="Recording chain to measure on: 'mic' as recorded, "
                              "or 'pickup' for GuitarSet's pickup mix of the same takes")
+    parser.add_argument('--players', nargs='*',
+                        help="Players making up the split, instead of the defaults: "
+                             "e.g. --split test --players P3 --domain gt-exo for "
+                             "Guitar-TECHS's held-out player on its room microphone")
     parser.add_argument('--thresholds', default='0.80,0.85,0.90,0.93')
     parser.add_argument('--audio-weight', type=float,
                         help='Override fusion.AUDIO_STRING_WEIGHT for this run')
+    parser.add_argument('--open-neutral', type=float, default=0.,
+                        help='Set fusion.OPEN_AUDIO_NEUTRAL for this run')
     parser.add_argument('--cqt', type=Path, help='CQT cache the model was trained with')
     parser.add_argument('--no-refine', action='store_true',
                         help='Keep candidate frame times instead of the predicted onset')
@@ -105,9 +111,15 @@ def main():
 
     device = (torch.device(args.device) if args.device
               else torch.device('mps' if torch.backends.mps.is_available() else 'cpu'))
+    if args.open_neutral:
+        from processing.music import fusion
+        fusion.OPEN_AUDIO_NEUTRAL = args.open_neutral
     candidates = verifier_data.load_candidates(args.candidates)
+    chosen = {'domain': args.domain}
+    if args.players:
+        chosen[args.split] = tuple(args.players)
     train, val, test = verifier_data.splits(candidates['players'], candidates['names'],
-                                            domain=args.domain)
+                                            **chosen)
     members = {'train': train, 'val': val, 'test': test}[args.split]
     model, channels, trained_with = verify.load(args.model, device)
     cqt = args.cqt or (Path(trained_with) if trained_with else None)
@@ -137,7 +149,7 @@ def main():
                 string, 1).float().cpu().numpy()[:, ::-1]
 
     from basic_pitch.note_creation import model_frames_to_time
-    found = {excerpt.name: excerpt for excerpt in guitarset.excerpts(ROOT)[0]}
+    found = verifier_data.excerpts(ROOT)
     thresholds = [float(value) for value in args.thresholds.split(',')]
     totals = {threshold: np.zeros(len(COLUMNS), np.int64)
               for threshold in thresholds}

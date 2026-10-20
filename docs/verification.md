@@ -48,11 +48,17 @@ training, checkpoint selection, or threshold choice; 8,715 notes, no video.
 The middle row predates the whole-onset string assignment and was not
 re-measured; the other two are current.
 
-The string and tab columns assume `--audio-string-weight .25`. The shipped
-default is 0, which scores `.902` note F1, `.668` string and `.603` tab F1 on
-the same notes: the term is worth 21 points of string accuracy here and loses
-badly on electric guitars, so it is off by default. See
-[tab logic](tab-logic.md).
+The rows above are threshold .85 with `--audio-string-weight .25` and no open
+restriction. What ships — the verifier retrained with Guitar-TECHS
+(`v8-gt`), threshold .75, weight .25 and the open restriction — scores `.893`
+note F1, `.865` string and `.773` tab F1 on the same player; the previous
+default (acoustic-only verifier, term off) scored `.894`, `.664` and `.594`.
+See [tab logic](tab-logic.md#the-default-and-the-one-thing-audio-may-not-decide).
+
+- Guitar-TECHS player P3, held out of training and used to choose between
+  candidates: on its amp microphone note F1 `.703` -> `.726`, string `.472` ->
+  `.627`, tab F1 `.332` -> `.455` against the previous default; on its room
+  microphones string `.518` -> `.560` and `.488` -> `.565`.
 
 - Basic Pitch held-out GuitarSet F1 over all 312 non-tuning excerpts: `.779`.
 - Blind string assignment with perfect pitches and no audio timbre: `.698`
@@ -61,16 +67,18 @@ badly on electric guitars, so it is off by default. See
   trained on: note F1 `.695` -> `.817`, string `.515` -> `.638`, tab F1 `.358`
   -> `.521`. Augmentation supplied `.803` -> `.817` and `.607` -> `.634` of
   that, and assigning each onset's strings as a whole the last `.634` ->
-  `.638`. Nine configurations have been scored against IDMT, which is more
-  than a held-out set should see; the assignment change was chosen entirely on
-  GuitarSet's validation player and then measured on IDMT once.
+  `.638`. The shipped configuration against the previous default, both at
+  threshold .75: note F1 `.820` -> `.837`, string `.509` -> `.586`, tab F1
+  `.418` -> `.490`. Thirteen configurations have now been scored against IDMT,
+  which is more than a held-out set should see; nothing shipped was chosen on
+  it — see [the note verifier](note-verifier.md#a-note-on-how-many-configurations-idmt-scored).
 - Cross-transducer within GuitarSet, validation player on the pickup mix rather
   than the microphone: string `.785` -> `.813` with augmentation, against
   `.861` on the microphone. The gap a change of transducer costs narrowed from
   8.2 points to 4.8.
 - The runtime path was checked against the measurement harness on 12 test
   excerpts: `.879` -> `.911` note F1, same direction and magnitude.
-- Unit and integration suite: 173 tests.
+- Unit and integration suite: 196 tests.
 
 ## Not established
 

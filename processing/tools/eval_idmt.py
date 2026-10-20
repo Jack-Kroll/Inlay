@@ -31,16 +31,21 @@ def main():
     parser.add_argument('--root', type=Path, default=idmt.ROOT)
     parser.add_argument('--cache', type=Path, default=idmt.POSTERIORGRAMS)
     parser.add_argument('--model', type=Path,
-                        default=Path('runs/verifier/v3-aug/best.pt'))
+                        default=Path('runs/verifier/v8-gt/best.pt'))
     parser.add_argument('--threshold', type=float, default=verify.SCORE_THRESHOLD)
     parser.add_argument('--audio-weight', type=float,
                         help='Override fusion.AUDIO_STRING_WEIGHT for this run')
+    parser.add_argument('--open-neutral', type=float, default=0.,
+                        help='Set fusion.OPEN_AUDIO_NEUTRAL for this run')
     parser.add_argument('--device')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
 
     device = (torch.device(args.device) if args.device
               else torch.device('mps' if torch.backends.mps.is_available() else 'cpu'))
+    if args.open_neutral:
+        from processing.music import fusion
+        fusion.OPEN_AUDIO_NEUTRAL = args.open_neutral
     model, channels, _ = verify.load(args.model, device)
     found, _ = idmt.recordings(args.root)
     print(f'{args.model} ({channels} channels) on {len(found)} IDMT recordings, '
@@ -118,7 +123,7 @@ def main():
         keys = COLUMNS
         args.output.write_text(json.dumps({
             'model': str(args.model), 'threshold': args.threshold,
-            'audio_weight': args.audio_weight,
+            'audio_weight': args.audio_weight, 'open_neutral': args.open_neutral,
             'baseline': dict(zip(keys, base_total.tolist())),
             'verifier': dict(zip(keys, mine_total.tolist())),
             'by_subset': {name: {'baseline': dict(zip(keys, base.tolist())),

@@ -27,27 +27,30 @@ SUPPORT_THRESHOLD = .35
 # two are genuinely independent evidence about the same question. Zero here
 # reproduces the geometry-only behaviour exactly.
 #
-# Default off, which is not what GuitarSet says. On GuitarSet a weight of .25
-# is worth 21 points of string accuracy (.668 -> .881 on the held-out player)
-# and 19 of tab F1, and it is the only thing that places an open string at all
-# (.542 -> .947). That gain does not survive leaving the corpus the string head
-# was trained on.
+# .25 is the middle of the plateau GuitarSet's validation player shows from .20
+# to .35. With a string head that has heard electric guitars (Guitar-TECHS, see
+# docs/note-verifier.md) it pays on every labelled recording chain there is:
+# string accuracy against the same decode with the term off, on GuitarSet's
+# held-out player .658 -> .865 and on Guitar-TECHS's held-out electric .40-.49
+# -> .56-.63 whether the microphone is on the amp or across the room.
+AUDIO_STRING_WEIGHT = .25
+# How far the audio term is kept from arguing a note off an open string, 0 to
+# 1; see _score. At 1, audio still chooses between fretted spellings but cannot
+# say a note is not open, which is left to the camera and musical context.
 #
-# On a distorted electric playing Thunderstruck's open-B riff, a weight of .25
-# put 42 of the B3 notes at string 3 fret 4 -- the right pitch, the wrong
-# string, and a fingering nobody would play -- and open placements across the
-# clip fell from 26 to 4. Fingertip support, which is the camera's independent
-# opinion, fell with them: .638 to .449. Setting the weight to 0 restored both
-# (32 open, .656), above the thresholds baseline. On IDMT's electrics the same
-# term gains only 9 points against 23 on GuitarSet and loses two subsets
-# outright, and confidence gating does not separate the cases: the head is
-# confidently wrong off acoustic guitar rather than uncertain.
-#
-# A note placed on a string nobody fretted is worse than a note left to
-# context, because it reads as a real fingering. So the term is off until the
-# string head has electric training data. Pass --audio-string-weight .25 for
-# acoustic material that resembles GuitarSet. See docs/tab-logic.md.
-AUDIO_STRING_WEIGHT = 0.
+# The string head cannot hear an open string through a room. On Guitar-TECHS's
+# room microphones the audio term takes open-string accuracy *down* (.441 ->
+# .305 head-mounted) while taking fretted notes up by more, and on a phone
+# recording of Thunderstruck's open-B riff it put 42 of 48 B3 notes on string 3
+# fret 4 -- the right pitch, a fingering nobody plays. At 1 the same clip keeps
+# 34 open and reaches .721 fingertip support, the camera's independent opinion
+# and the highest of any configuration tried; with the term off it was .677.
+# Labelled audio pays for that with 0.6 points of string accuracy averaged over
+# the electric chains, and 2.6 on GuitarSet's close-miked acoustic, because
+# some fretted notes now go to an open string audio could have ruled out. That
+# trade was taken knowingly: a misplaced open string is the error a reader
+# notices first, and the phone in a room is what this is for.
+OPEN_AUDIO_NEUTRAL = 1.
 # An unoccupied string is only evidence of absence: a fingertip can be missed or
 # occluded. Credit it below a fingertip sitting squarely on a cell, so positive
 # evidence always outranks the lack of it.
@@ -286,6 +289,11 @@ def _score(string, fret, contacts, position, posterior=None,
     if posterior is None or not audio_weight:
         return geometry, finger, contact
     heard = float(posterior[string - 1]) if 0 < string <= len(posterior) else 0.
+    if fret == 0 and OPEN_AUDIO_NEUTRAL:
+        # At 1, audio may say which string a fretted note is on but not that a
+        # note is not open: an open spelling is credited with the best any
+        # string was heard at, so open-versus-fretted is left to geometry.
+        heard += OPEN_AUDIO_NEUTRAL*(float(np.max(posterior)) - heard)
     return (1 - audio_weight)*geometry + audio_weight*heard, finger, contact
 
 

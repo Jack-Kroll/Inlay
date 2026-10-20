@@ -76,7 +76,7 @@ def extract_audio(media, destination, sample_rate=SAMPLE_RATE):
     return destination
 
 
-DEFAULT_VERIFIER = Path('runs/verifier/v3-aug/best.pt')
+DEFAULT_VERIFIER = Path('runs/verifier/v8-gt/best.pt')
 
 
 def default_verifier(path=DEFAULT_VERIFIER):

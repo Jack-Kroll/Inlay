@@ -83,6 +83,22 @@ class Causality(unittest.TestCase):
     def test_saturation_does_not_precede_the_attack(self):
         self.quiet_before(lambda x: augment.saturate(x, 10.))
 
+    def test_an_amp_does_not_precede_the_attack(self):
+        self.quiet_before(lambda x: augment.amp(x, np.random.default_rng(3), 60.)[0])
+
+    def test_an_amp_adds_even_harmonics_and_rolls_off_the_fizz(self):
+        wave = (np.sin(2*np.pi*500*np.arange(RATE)/RATE)*.5).astype(np.float32)
+        def energy(signal, hz):
+            spectrum = abs(np.fft.rfft(signal))
+            return float(spectrum[np.argmin(abs(np.fft.rfftfreq(RATE, 1/RATE) - hz))])
+        out, gain = augment.amp(wave, np.random.default_rng(0), 30.)
+        self.assertEqual(gain, 30.)
+        self.assertTrue(np.isfinite(out).all() and np.abs(out).max() <= .91)
+        # Asymmetric clipping makes the second harmonic, which tanh alone cannot.
+        self.assertGreater(energy(out, 1000.), 20*energy(augment.saturate(wave, 30.), 1000.))
+        # The speaker takes the top octave down hard, where a bare clipper does not.
+        self.assertLess(energy(out, 9500.), .05*energy(augment.saturate(wave, 30.), 9500.))
+
     def test_a_cabinet_impulse_is_direct_dominant(self):
         for seed in range(8):
             impulse = augment.cabinet_impulse(np.random.default_rng(seed))

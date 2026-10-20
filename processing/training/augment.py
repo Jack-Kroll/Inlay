@@ -159,6 +159,65 @@ def saturate(wave, drive):
     return shaped*(peak/max(1e-6, float(np.abs(shaped).max())))
 
 
+def lowpass(wave, hz, q=.707, sample_rate=SAMPLE_RATE):
+    """An RBJ second-order low-pass."""
+    omega = 2*np.pi*hz/sample_rate
+    alpha = np.sin(omega)/(2*q)
+    cosine = np.cos(omega)
+    b = [(1 - cosine)/2, 1 - cosine, (1 - cosine)/2]
+    a = [1 + alpha, -2*cosine, 1 - alpha]
+    return _biquad(wave, np.array(b)/a[0], np.array(a)/a[0])
+
+
+def highpass(wave, hz, q=.707, sample_rate=SAMPLE_RATE):
+    """An RBJ second-order high-pass."""
+    omega = 2*np.pi*hz/sample_rate
+    alpha = np.sin(omega)/(2*q)
+    cosine = np.cos(omega)
+    b = [(1 + cosine)/2, -(1 + cosine), (1 + cosine)/2]
+    a = [1 + alpha, -2*cosine, 1 - alpha]
+    return _biquad(wave, np.array(b)/a[0], np.array(a)/a[0])
+
+
+# Gain into the clipping stage, as a multiple of the input's peak. 4 is an
+# edge-of-breakup crunch; 60 is a high-gain lead channel.
+AMP_GAIN = (4., 60.)
+
+
+def amp(wave, rng, gain=None, sample_rate=SAMPLE_RATE):
+    """Re-amp a direct-input guitar through a distorted amp and a speaker.
+
+    ``chain``'s saturation stage is a symmetric tanh at drive 1-12 applied
+    after a cabinet impulse, which is a recording chain that happens to clip,
+    not a guitar amp: no amp in that range ever put Thunderstruck's open B on
+    the G string. This is the order and shape of the real thing -- a high-pass
+    into a mid-boosted preamp, asymmetric clipping at a gain that can reach a
+    lead channel, then a speaker that rolls everything off above four or five
+    kilohertz, because an unfiltered clipper is fizz no guitar amp produces.
+
+    Asymmetry matters for the string head in particular: it adds even
+    harmonics, and the balance of even to odd partials is one of the things a
+    wound string and a plain one differ in.
+    """
+    gain = float(np.exp(rng.uniform(*np.log(AMP_GAIN)))) if gain is None else gain
+    wave = highpass(wave, float(rng.uniform(70., 140.)), sample_rate=sample_rate)
+    wave = peaking(wave, float(rng.uniform(500., 1200.)), float(rng.uniform(3., 9.)),
+                   .8, sample_rate)
+    peak = max(1e-6, float(np.abs(wave).max()))
+    bias = float(rng.uniform(.05, .3))
+    driven = gain*wave/peak + bias
+    shaped = (np.tanh(driven) - np.tanh(bias)).astype(np.float32)
+    # The speaker: a steep roll-off, a low resonance and a presence bump.
+    corner = float(rng.uniform(3500., 6000.))
+    shaped = lowpass(lowpass(shaped, corner, sample_rate=sample_rate), corner,
+                     sample_rate=sample_rate)
+    shaped = peaking(shaped, float(rng.uniform(90., 140.)), float(rng.uniform(2., 6.)),
+                     1.2, sample_rate)
+    shaped = peaking(shaped, float(rng.uniform(1800., 3200.)), float(rng.uniform(-3., 5.)),
+                     1., sample_rate)
+    return (shaped*(.9/max(1e-6, float(np.abs(shaped).max())))).astype(np.float32), gain
+
+
 def hiss(wave, snr_db, pink=False, rng=None):
     """Additive noise at a signal-to-noise ratio, white or pink."""
     rng = rng or np.random.default_rng()

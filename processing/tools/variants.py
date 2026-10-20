@@ -79,6 +79,7 @@ class Job:
     strength: float = 1.
     shift: tuple[int, int] | None = None
     headroom: int = 0
+    amped: bool = False
 
 
 def seed(domain, name):
@@ -122,6 +123,10 @@ def _render(job):
         semitones = int(min(rng.integers(low, high + 1), job.headroom))
         wave = augment.neck_shift(wave, semitones)
         done.append(f'up {semitones} semitones')
+    if job.amped:
+        # Before the recording chain, as a real amp sits before its microphone.
+        wave, gain = augment.amp(wave, rng)
+        done.append(f'amp gain {gain:.0f}')
     if job.augmented:
         wave, note = augment.chain(wave, rng, strength=job.strength)
         done.append(note)

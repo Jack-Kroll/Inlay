@@ -63,9 +63,26 @@ event — 5,164 usable notes in standard tuning. It is CC BY-NC-ND 4.0, so it is
 used only to measure generalisation and never to train. It is also what showed
 that the verifier's string head does not transfer off acoustic guitar.
 
-What the audio side needs next is electric and amplified training data with
-string labels, and augmentation (gain, EQ, amp, room) over what exists. Neither
-has been tried.
+Guitar-TECHS (Zenodo record 14963133, CC BY 4.0, 4.1 GB) is the electric
+training data the string head lacked: three players on an Ibanez PF300, an EVH
+Wolfgang and a Sire T7 through three amps in three rooms, 5.2 hours, every take
+recorded four ways — direct input, a microphone on the amp, and head-mounted
+and front-facing stereo microphones captured by a video device (audio only;
+the video is not distributed). Labels come from a Fishman TriplePlay pickup,
+one MIDI track per string, so the string is read off hardware. The content is
+single notes at every fret of every string, scales in boxes, three- and
+four-note chord sets, techniques (bends, harmonics, palm mute, vibrato), and
+eight minutes of music. 29% of its notes sit at fret 12 or higher, against
+GuitarSet's 1.2%. `processing.tools.guitar_techs` slices it into thirty-second
+excerpts and renders each chain as its own domain; see
+[the note verifier](note-verifier.md) for what it was worth, and that module's
+docstring for why the two room-microphone chains carry only string labels.
+
+Other candidates looked at and not used: GOAT (5.9 h of direct-input electric
+from many guitars, CC BY 4.0 but by request and research-only), EGDB (one
+guitar, licence not stated where it is hosted), SynthTab (2 TB of synthesised
+audio, licence unverified), and GAPS (classical guitar, YouTube links rather
+than files).
 
 ## What to collect next
 

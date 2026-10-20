@@ -101,15 +101,21 @@ independent evidence, so they are mixed rather than ranked — see
 ## Train it
 
 GuitarSet must be unzipped under `data/guitarset` and its posteriorgrams
-cached, which `processing.tools.tune_pitch` does on its first run.
+cached, which `processing.tools.tune_pitch` does on its first run, and
+Guitar-TECHS's nine archives from Zenodo record 14963133 unzipped under
+`data/guitar-techs/raw`.
 
 ```sh
 uv run python -m processing.tools.cqt
 uv run python -m processing.tools.variants --variants 3
-uv run python -m processing.training.verifier_data --domains aug-v1 aug-v2 aug-v3
+uv run python -m processing.tools.guitar_techs --prepare
+uv run python -m processing.training.verifier_data \
+  --domains aug-v1 aug-v2 aug-v3 --measure-domains gt-di gt-amp gt-ego gt-exo
 uv run python -m processing.training.train_verifier \
-  --cqt data/guitarset/cqt --output runs/verifier/v3-aug --epochs 14 \
-  --train-domains mic aug-v1 aug-v2 aug-v3 --epoch-positives 46656
+  --cqt data/guitarset/cqt --planes data/verifier/planes \
+  --output runs/verifier/v8-gt --epochs 14 \
+  --train-domains mic aug-v1 aug-v2 aug-v3 gt-di gt-amp gt-ego gt-exo \
+  --string-only-domains gt-ego gt-exo --epoch-positives 46656
 ```
 
 The middle two steps are augmentation, described under
@@ -413,6 +419,51 @@ GuitarSet is almost always a low fret on a higher string, because 60 of its
 62,476 notes are above fret 15, so that is the answer the head has learned to
 give. `dataset3` is the one subset where that matters enough to lose.
 
+## Electric guitars: Guitar-TECHS
+
+Everything up to here was trained on six acoustic guitars, and the string head
+transferred to IDMT's electrics at 9 points rather than 23. Guitar-TECHS
+(Zenodo 14963133, CC BY 4.0) is three players on three electric guitars
+through three amps in three rooms, every take recorded four ways, with string
+labels from a hex MIDI pickup — see
+[the dataset review](dataset-review.md#additional-data) and
+`processing.tools.guitar_techs`. Players P1 and P2 train; P3, on a Sire T7
+through an Orange CR-12 playing eight minutes of music, is held out exactly as
+GuitarSet's player 05 is, and is what the choices below were made on, so that
+IDMT could be asked once at the end.
+
+Two of the four chains — the head-mounted and the front-facing room
+microphones — have labels that agree with the audio's attacks only loosely:
+after the best global shift, 83% of notes within 50 ms, against 99% for the
+direct input and the amp microphone, with a 33 ms spread inside a single
+excerpt and no drift to correct. They say which string, not when, so they
+train the string head alone (`--string-only-domains`). The posteriorgram cache
+is too large for memory once they are in, so `--planes` memory-maps it.
+
+`v8-gt` is v3-aug's recipe with all four chains added, at the same step
+budget. Threshold .75, audio weight .25, over the same matched notes:
+
+| | GuitarSet 05 string | P3 amp mic | P3 direct | P3 room 5 ft | P3 room head |
+|---|---:|---:|---:|---:|---:|
+| v3-aug | .876 | .546 | .580 | .571 | .560 |
+| v8-gt | .891 | .632 | .622 | .585 | .561 |
+
+and note F1 on P3's amp microphone .703 -> .726, GuitarSet's unchanged (.894,
+.893). GuitarSet validation AP is level, .8697 against .8698.
+
+Bucketed by fret on IDMT, the string head alone gained most where GuitarSet
+never goes — past fret 15, .138 -> .352 — and gave some back at the bottom of
+the neck, .661 -> .578 at frets 0–2: Guitar-TECHS is drills, 29% of its notes
+at fret 12 or above and 0.6% open, and the head learned that prior with the
+timbre. Reweighting that prior out was tried and did not help (see below). On
+IDMT overall the string head is level with v3-aug; what moved is what the
+shipped configuration does with it, which is in
+[tab logic](tab-logic.md#the-default-and-the-one-thing-audio-may-not-decide):
+against the previous default (v3-aug, audio term off) IDMT goes .820 -> .837
+note F1, .509 -> .586 string and .418 -> .490 tab F1, seven of eight subsets
+up. The eighth is `dataset3`, 76 notes up the neck where context alone gets
+.921.
+
 ## Rejected ideas
 
 - **Shifting excerpts up the neck by resampling.** Playing an excerpt faster
@@ -462,22 +513,49 @@ give. `dataset3` is the one subset where that matters enough to lose.
 - **Gating the audio string term on the head's own confidence.** At a .9 gate
   IDMT string accuracy falls to .580. The head is confidently wrong rather than
   uncertain, so there is nothing for a gate to catch.
-- **Electric training corpora** were not needed to get this far and so were not
-  downloaded. EGDB (arXiv 2202.09907) is re-rendered through several amps and a
-  CC BY 4.0 copy exists on Zenodo, which would permit training; GOAT (arXiv
-  2509.22655) is 5.9 hours of direct-input electric. Either is the right next
-  step if the string head has to improve further, and neither licence was
-  verified beyond that Zenodo record.
+- **Reweighting Guitar-TECHS's fret distribution towards GuitarSet's**
+  (`--fret-prior-power`), to undo the drills' high-neck prior. At power .5 and
+  1 it left GuitarSet validation level and cost P3 2-3 points of string
+  accuracy (.632 -> .603 on the amp microphone), and did not move
+  Thunderstruck's open B at all: scaling a hundred open-string notes up
+  fifteenfold does not teach the head an open-string timbre it has barely
+  heard.
+- **Re-amping the direct inputs through a distorted amp** (`augment.amp`,
+  `guitar_techs --reamp`). Every Guitar-TECHS take has a direct input, so
+  distortion with exact labels is free. It reproduced something real —
+  distorted P3 drops v8's note precision from .898 to .517, and the audio
+  term from 16 points ahead of context to 1.6 behind — and training on two
+  re-amped copies of P1 and P2 recovered note F1 there, .531 -> .624. It cost
+  GuitarSet 4 points of note F1 at the shipped threshold and 1.4 at its own
+  best, left the string head under distortion near .55, and did not move
+  Thunderstruck. Thunderstruck turned out not to be distorted in the first
+  place: its crest factor, 2.95, is the highest of any clip or corpus here,
+  where the synthetic amp sits at 1.5-2.0. What it shares with every other
+  clip is a microphone across a room. The amp and the renderer are kept.
+- **Gating the audio term on distortion**, which the re-amp result suggested
+  before the crest factors said Thunderstruck was clean. Not built.
+- **Other electric corpora.** GOAT (arXiv 2509.22655, 5.9 h of direct-input
+  electric from many guitars) is CC BY 4.0 but distributed on request for
+  research; EGDB is one guitar with no licence stated where it is hosted;
+  SynthTab is 2 TB of synthesised audio with its licence unverified.
 
 ### A note on how many configurations IDMT scored
 
-IDMT is meant to be measured once. **Nine** have been scored against it: six
+IDMT is meant to be measured once. **Thirteen** have been scored against it: six
 training runs, then the whole-onset assignment, then the same assignment with
 the audio term off, which is the "context" column above, and then the
 neck-shifted run again under the new assignment so that comparison was not
 being made across two different fusion rules. The assignment itself was chosen
 entirely on GuitarSet's validation player — IDMT saw one candidate, once, and
-two of the nine only re-measure something an earlier table had got wrong. The
+two of the nine only re-measure something an earlier table had got wrong.
+
+Four more came with Guitar-TECHS: v8-gt at threshold .75 and weight .25; v3-aug
+re-scored at .75, because the earlier figure was at .85 and the two would
+otherwise have been over different notes; the final configuration (v8-gt,
+weight .25, open restriction 1); and the previous default (v3-aug, weight 0) so
+that the final one had a like-for-like comparison. The second of these showed
+the low-fret regression, which led to the reweighting experiment, but that was
+decided on P3 and rejected there; nothing shipped was chosen on IDMT. The
 per-subset figures on 73 to 78 notes should still be read with the total in
 mind: on `dataset3`, sixteen notes move it by five points.
 
@@ -486,10 +564,16 @@ mind: on `dataset3`, sixteen notes move it by five points.
 - Everything above is audio against annotated audio. It says nothing about
   camera geometry, and the end-to-end accuracy of video plus audio together is
   still unmeasured.
-- Trained on 3 hours of acoustic guitar from six players, augmented into a
-  wider range of recording chains but not a wider range of guitars. The string
-  head should still be treated with suspicion on an unfamiliar instrument:
-  .881 on a held-out GuitarSet player, .638 on IDMT's electrics.
+- Trained on 3 hours of acoustic guitar from six players and about 3.5 hours
+  of electric from two, recorded four ways. Guitar-TECHS is drills rather than
+  songs, and almost never open; the string head is .891 on a held-out GuitarSet
+  player, .56-.63 on a held-out electric depending on the microphone.
+- Through a room microphone the string head cannot hear an open string, which
+  is why the tab stage does not let it decide one.
+- Distortion breaks note detection (P3 re-amped: precision .898 -> .517) and
+  the string head. Training on synthetic distortion fixes the first at a cost
+  to clean recordings and does not fix the second; nothing shipped handles a
+  high-gain amp well.
 - The verifier answers whether a note started. Offsets still come from the
   frame head and are not measured.
 - Notes 60–100 ms apart remain hard; peak-picking cannot separate two attacks

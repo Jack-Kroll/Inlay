@@ -28,12 +28,15 @@ import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 
 from processing.music import verify
-from processing.tools import guitarset
+from processing.tools import guitarset, guitar_techs
 
 ROOT = Path('data/guitarset')
 CACHE = ROOT/'posteriorgrams'
 TOLERANCE = .05
-TRAIN_PLAYERS = ('00', '01', '02', '03')
+# GuitarSet players 00-03 and Guitar-TECHS players P1-P2 train. GuitarSet's
+# 04 validates and 05 is the test player; Guitar-TECHS's P3 is held out the
+# same way, on a different guitar, amp and room, and is measured by naming it.
+TRAIN_PLAYERS = ('00', '01', '02', '03', 'P1', 'P2')
 VAL_PLAYERS = ('04',)
 TEST_PLAYERS = ('05',)
 # The microphone excerpts everything was measured on before domains existed.
@@ -73,9 +76,38 @@ def splits(players, names=None, train=TRAIN_PLAYERS, val=VAL_PLAYERS,
             {i for i, p in enumerate(players) if p in test and here[i]})
 
 
+def excerpts(root=ROOT):
+    """Every excerpt a cache name can refer to, keyed by its bare name.
+
+    GuitarSet's 360, plus whatever Guitar-TECHS has prepared. The two corpora
+    never share a name: GuitarSet's start with a two-digit player, Guitar-TECHS's
+    with ``P``.
+    """
+    found = {excerpt.name: excerpt for excerpt in guitarset.excerpts(root)[0]}
+    for excerpt in guitar_techs.excerpts():
+        found[excerpt.name] = excerpt
+    return found
+
+
 def load_candidates(path=Path('data/verifier/candidates.npz')):
     with np.load(path, allow_pickle=False) as stored:
         return {key: stored[key] for key in stored.files}
+
+
+def stack(prepared):
+    """One (frames, pitches, channels) float16 array from ``verify.prepare``'s
+    list, so an excerpt can be saved raw and memory-mapped."""
+    planes = [prepared[0][..., None], prepared[1][..., None]] + list(prepared[2:])
+    return np.concatenate(planes, axis=-1).astype(np.float16)
+
+
+def unstack(stacked):
+    """The inverse of ``stack``: views ``verify.fill`` reads, in its order."""
+    prepared = [stacked[..., 0], stacked[..., 1],
+                stacked[..., 2:verify.CHANNELS]]
+    if stacked.shape[-1] > verify.CHANNELS:
+        prepared.append(stacked[..., verify.CHANNELS:])
+    return prepared
 
 
 class Patches:
@@ -86,7 +118,8 @@ class Patches:
     roughly 100 ms for the training step itself.
     """
 
-    def __init__(self, names, cache=CACHE, progress=False, cqt=None, only=None):
+    def __init__(self, names, cache=CACHE, progress=False, cqt=None, only=None,
+                 planes=None):
         from basic_pitch.note_creation import model_frames_to_time
         self.prepared = []
         self.channels = verify.CHANNELS + (verify.CQT_CHANNELS if cqt else 0)
@@ -95,17 +128,32 @@ class Patches:
                 # Indexed by excerpt, so a skipped one still needs its place.
                 self.prepared.append(None)
                 continue
-            with np.load(Path(cache)/f'{name}.npz') as stored:
-                note, onset = stored['note'], stored['onset']
-                contour = stored['contour']
-            spectrum = None
-            if cqt:
-                with np.load(Path(cqt)/f'{name}.npz') as stored:
-                    spectrum = verify.align_cqt(
-                        stored['cqt'].astype(np.float32),
-                        model_frames_to_time(contour.shape[0])[:note.shape[0]],
-                        note.shape[1])
-            self.prepared.append(verify.prepare(note, onset, contour, spectrum))
+            # With ``planes``, the prepared excerpt lives on disk as one raw
+            # float16 array, channels last, and is memory-mapped: a patch is
+            # then a few contiguous rows the page cache serves, and the
+            # training set is no longer bounded by RAM. Guitar-TECHS took the
+            # excerpt count from 1,140 to about 3,500, which at 5.7 MB each
+            # does not fit in 16 GB.
+            stored_planes = Path(planes)/f'{name}.npy' if planes else None
+            if stored_planes is not None and stored_planes.is_file():
+                self.prepared.append(unstack(np.load(stored_planes, mmap_mode='r')))
+            else:
+                with np.load(Path(cache)/f'{name}.npz') as stored:
+                    note, onset = stored['note'], stored['onset']
+                    contour = stored['contour']
+                spectrum = None
+                if cqt:
+                    with np.load(Path(cqt)/f'{name}.npz') as stored:
+                        spectrum = verify.align_cqt(
+                            stored['cqt'].astype(np.float32),
+                            model_frames_to_time(contour.shape[0])[:note.shape[0]],
+                            note.shape[1])
+                prepared = verify.prepare(note, onset, contour, spectrum)
+                if stored_planes is not None:
+                    stored_planes.parent.mkdir(parents=True, exist_ok=True)
+                    np.save(stored_planes, stack(prepared))
+                    prepared = unstack(np.load(stored_planes, mmap_mode='r'))
+                self.prepared.append(prepared)
             if progress and index % 60 == 59:
                 print(f'  loaded {index + 1}/{len(names)} posteriorgrams', flush=True)
 
@@ -187,6 +235,10 @@ def main():
                         help='Extra rendered domains to add, e.g. pickup aug-v1')
     parser.add_argument('--measure-domains', nargs='*', default=[],
                         help='Domains to add for held-out players too, to measure on')
+    parser.add_argument('--guitar-techs', nargs='*', metavar='CHAIN',
+                        help='Guitar-TECHS chains to include, of those prepared: '
+                             'di amp ego exo drive-v1 ... (default: every one '
+                             'prepared; pass the flag alone to leave it out)')
     args = parser.parse_args()
 
     cache = args.root/'posteriorgrams'
@@ -205,6 +257,18 @@ def main():
             name = variant_name(domain, excerpt.name)
             if (cache/f'{name}.npz').is_file():
                 rendered.append((excerpt, name))
+    # Guitar-TECHS excerpts are already one chain each; the chain is the
+    # domain. Held-out players come in only when their chain is named as a
+    # domain to measure on, same as a GuitarSet render.
+    for excerpt in sorted(guitar_techs.excerpts(), key=lambda excerpt: excerpt.name):
+        domain = guitar_techs.domain(excerpt.key)
+        if ((args.guitar_techs is not None and excerpt.key not in args.guitar_techs)
+                or (excerpt.player not in TRAIN_PLAYERS
+                    and domain not in args.measure_domains)):
+            continue
+        name = variant_name(domain, excerpt.name)
+        if (cache/f'{name}.npz').is_file():
+            rendered.append((excerpt, name))
     jobs = [(index, name, excerpt.annotation, cache)
             for index, (excerpt, name) in enumerate(rendered)]
     parts, references = [], 0

@@ -17,7 +17,7 @@ uv sync --locked
 
 Local datasets, clips, runs, and model weights are gitignored. The commands
 below expect the trained checkpoints at `runs/dense/fretboard-v1/best.pt` and
-`runs/verifier/v3-aug/best.pt`. Without the verifier checkpoint, transcription
+`runs/verifier/v8-gt/best.pt`. Without the verifier checkpoint, transcription
 falls back to Basic Pitch's thresholds and says so.
 
 ## Preview the fretboard
@@ -62,8 +62,8 @@ Use `--model`, `--output`, or `--device` to override the defaults.
 
 FretboardNet uses a pretrained ResNet34 encoder with a custom U-Net-style
 decoder, output heads, loss, training loop, and inference pipeline. The note
-verifier is a small CNN over posteriorgram patches, trained on GuitarSet with
-whole players held out.
+verifier is a small CNN over posteriorgram patches, trained on GuitarSet and
+Guitar-TECHS with whole players held out.
 
 ## Train and test
 
@@ -75,15 +75,20 @@ uv run python -m processing.training.train \
   --epochs 150 --imgsz 768 --batch 1 --accumulate 16 --device mps
 ```
 
-The note verifier, from GuitarSet under `data/guitarset`:
+The note verifier, from GuitarSet under `data/guitarset` and Guitar-TECHS under
+`data/guitar-techs/raw`:
 
 ```sh
 uv run python -m processing.tools.cqt
 uv run python -m processing.tools.variants --variants 3
-uv run python -m processing.training.verifier_data --domains aug-v1 aug-v2 aug-v3
+uv run python -m processing.tools.guitar_techs --prepare
+uv run python -m processing.training.verifier_data \
+  --domains aug-v1 aug-v2 aug-v3 --measure-domains gt-di gt-amp gt-ego gt-exo
 uv run python -m processing.training.train_verifier \
-  --cqt data/guitarset/cqt --output runs/verifier/v3-aug --epochs 14 \
-  --train-domains mic aug-v1 aug-v2 aug-v3 --epoch-positives 46656
+  --cqt data/guitarset/cqt --planes data/verifier/planes \
+  --output runs/verifier/v8-gt --epochs 14 \
+  --train-domains mic aug-v1 aug-v2 aug-v3 gt-di gt-amp gt-ego gt-exo \
+  --string-only-domains gt-ego gt-exo --epoch-positives 46656
 
 uv run python -m processing.tools.eval_verifier --split test
 ```
@@ -103,38 +108,42 @@ for details.
 
 ## Current results and limits
 
-Audio against annotated audio, on the GuitarSet player held out of training,
-checkpoint selection, and threshold choice — 8,715 notes, no video:
+Audio against annotated audio, no video, threshold .75, as shipped: the
+verifier trained on GuitarSet and Guitar-TECHS, the audio string term at .25,
+and audio not allowed to argue a note off an open string. "Previous" is the
+default before Guitar-TECHS: the acoustic-only verifier with the string term
+off.
 
-| | note F1 | string | tab F1 |
-|---|---:|---:|---:|
-| Basic Pitch thresholds | `.821` | `.653` | `.536` |
-| Note verifier + CQT | `.898` | `.882` | `.792` |
-| + recording-chain augmentation | `.902` | `.880` | `.794` |
+| held out of training | | note F1 | string | tab F1 |
+|---|---|---:|---:|---:|
+| GuitarSet player 05, acoustic, 8,715 notes | previous | `.894` | `.664` | `.594` |
+| | shipped | `.893` | `.865` | `.773` |
+| Guitar-TECHS player P3, electric, amp mic | previous | `.703` | `.472` | `.332` |
+| | shipped | `.726` | `.627` | `.455` |
+| IDMT-SMT-GUITAR, four electrics, 5,164 notes | previous | `.820` | `.509` | `.418` |
+| | shipped | `.837` | `.586` | `.490` |
 
-On IDMT-SMT-GUITAR's electric guitars, which nothing is trained on, note F1
-goes `.695` to `.817`, string accuracy `.514` to `.634`, and tab F1 `.358` to
-`.518`.
+The Guitar-TECHS row is player P3; on its room microphones string accuracy
+goes `.518` to `.560` (5 ft in front) and `.488` to `.565` (head-mounted).
+Nothing on IDMT is trained on, and nothing shipped was chosen on it.
 
-The string columns above need `--audio-string-weight .25`, which is **not the
-default**. That term is worth 21 points of string accuracy on GuitarSet and is
-the only thing that places an open string there, but on a distorted electric it
-put 42 of Thunderstruck's open-B notes on the wrong string. It ships off until
-the string head has electric training data; without it the shipped default
-scores `.902` note F1 and `.603` tab F1 on the table above. See
-[tab logic](docs/tab-logic.md).
+On a phone recording of Thunderstruck, where the string term on its own put
+42 of 48 open-B notes on the G string, the shipped configuration keeps 34 open
+and has the highest fingertip support — the camera's independent opinion — of
+any setting tried, `.721` against `.652` before. See
+[tab logic](docs/tab-logic.md#the-default-and-the-one-thing-audio-may-not-decide).
 
 - Complete audio/video transcription accuracy has still not been measured.
-  Nothing above involves the camera.
-- The verifier is trained on three hours of acoustic guitar from six players,
-  augmented into a wider range of recording chains but not a wider range of
-  guitars. Note detection transfers to electric guitars well; the string head
-  only partly, and on two of eight IDMT subsets it is still beaten by musical
-  context alone.
+  Nothing in the table involves the camera.
+- The string head has heard six acoustic and three electric guitars. Through a
+  room it cannot tell an open string from a fretted one, which is why it is not
+  allowed to decide that.
+- A high-gain amp breaks note detection: on re-amped Guitar-TECHS, precision
+  falls from `.90` to `.52`. Training on synthetic distortion recovered part of
+  that and cost clean recordings more; it is not shipped.
 - Strings are interpolated rather than detected.
-- The two settings chosen on GuitarSet, the verifier's score threshold and the
-  audio string weight, are both exposed as flags because they are the first
-  things to reach for on material that does not sound like GuitarSet.
+- `--verifier-threshold`, `--audio-string-weight` and `--open-audio-neutral`
+  are exposed as flags, and recorded in each transcription's JSONL summary.
 - Capos, bends, slides, barre chords, and alternate tunings are not inferred.
 
 More detail is available in [the note verifier](docs/note-verifier.md),
@@ -149,12 +158,13 @@ More detail is available in [the note verifier](docs/note-verifier.md),
   transcription.
 - `processing/training`: dense-model and verifier datasets, training, and
   evaluation.
-- `processing/tools`: GuitarSet and IDMT evaluation, CQT caching, and tuning
-  utilities.
+- `processing/tools`: GuitarSet, Guitar-TECHS and IDMT loaders and evaluation,
+  CQT caching, and tuning utilities.
 - `packages/music`: timed-note JSON contract for a future editor.
 - `tests`: unit and integration tests.
 
 Inlay source code is available under the [MIT License](LICENSE). Local visual
 data and GuitarSet are CC BY 4.0 and require their own attribution.
+Guitar-TECHS is CC BY 4.0 and requires its own attribution.
 IDMT-SMT-GUITAR is CC BY-NC-ND 4.0 and is used only to measure generalisation:
 nothing is trained on it and nothing derived from it ships.

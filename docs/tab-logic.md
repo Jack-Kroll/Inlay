@@ -90,36 +90,74 @@ guitars it gains 12 points rather than 21, and on one IDMT subset it is worse
 than context alone — badly so, 24 points. See
 [note verifier](note-verifier.md#per-subset).
 
-### Why the default is nevertheless 0
+### The default, and the one thing audio may not decide
 
-Everything above is GuitarSet: six acoustic guitars through one microphone,
-which is also what the string head was trained on. Off that corpus the term
-stops paying and starts costing, and a real clip showed how much.
+The term ships at .25, with one restriction: it may choose between fretted
+spellings but may not argue a note off an open string
+(`OPEN_AUDIO_NEUTRAL = 1`). Both were settled on recordings with labels from
+a chain like the one inlay is for — an electric guitar, a microphone across
+the room — which did not exist when the term was first switched off.
 
-Transcribing Thunderstruck's open-B riff from a distorted electric, a weight of
-.25 placed 42 of the B3 notes at string 3 fret 4. The right pitch, the wrong
-string, and a fingering nobody would play. Open placements across the clip fell
-from 26 to 4, and fingertip support — the camera's independent opinion, which
-this term cannot influence — fell with them. At weight 0 both recovered, above
-what the thresholds alone managed:
+**Why it was off.** Transcribing Thunderstruck's open-B riff from a phone, a
+weight of .25 placed 42 of the B3 notes at string 3 fret 4: the right pitch, a
+fingering nobody plays. Open placements fell from 26 to 4 and fingertip
+support, the camera's opinion, fell from .638 to .449. With only GuitarSet and
+IDMT to go on there was no way to tell whether that was the electric guitar,
+the room, or the distortion, so the term was turned off.
 
-| Thunderstruck | notes | open | B3 open | B3 at 3/4 | fingertip support |
+**What the labelled electric data says.** Guitar-TECHS's held-out player was
+recorded four ways at once ([note verifier](note-verifier.md#electric-guitars-guitar-techs)).
+String accuracy over the same notes, retrained verifier, the term on against
+off:
+
+| chain | off | .25 | open strings, off -> .25 |
+|---|---:|---:|---:|
+| direct input | .448 | .622 | .298 -> .478 |
+| amp microphone | .472 | .632 | .385 -> .396 |
+| room, 5 ft in front | .491 | .585 | .253 -> .232 |
+| room, head-mounted | .426 | .561 | .441 -> .305 |
+| GuitarSet player 05 | .658 | .891 | .506 -> .925 |
+
+So the term pays everywhere, by 9 to 23 points, and through a room it pays
+*despite* open strings: the head cannot hear an open string from across a room,
+and pushes it onto a fretted one. Thunderstruck is that failure on the one pitch
+the riff is built on.
+
+**The restriction.** At `OPEN_AUDIO_NEUTRAL = 1` an open spelling is credited
+with the best posterior any string got, so audio no longer has a say in open
+versus fretted, and geometry and the camera decide it as they did with the
+term off. Between fretted spellings audio is untouched.
+
+| | direct | amp | room 5 ft | room head | GuitarSet 05 |
 |---|---:|---:|---:|---:|---:|
-| Basic Pitch thresholds | 95 | 26 | 25 | 17 | .638 |
-| verifier, weight .25 | 93 | 4 | 3 | 42 | .449 |
-| verifier, weight 0 | 93 | 32 | 30 | 13 | .656 |
+| string, .25 | .622 | .632 | .585 | .561 | .891 |
+| string, .25 + restriction | .618 | .627 | .560 | .565 | .865 |
+| open strings, .25 | .478 | .396 | .232 | .305 | .925 |
+| open strings, .25 + restriction | .668 | .599 | .463 | .695 | .958 |
 
-Gating the term on the head's own confidence does not separate the good cases
-from the bad — at a .9 gate IDMT string accuracy *drops* — so the head is
-confidently wrong off acoustic guitar rather than uncertain, and no threshold
-keeps the win while dropping the damage.
+That costs 0.6 points of string accuracy averaged over the electric chains
+and 2.6 on GuitarSet, because some fretted notes now go to an open string that
+audio could have ruled out; halfway (.5) costs nothing on the electric chains
+but recovers only half the open strings. On the clip that started this:
 
-A note placed on a string nobody fretted is worse than a note left to musical
-context, because it reads as a real fingering rather than as a guess. So the
-term ships off, at the cost of 21 points of GuitarSet string accuracy and the
-open-string result that motivated it. `--audio-string-weight .25` turns it back
-on for acoustic material that resembles GuitarSet. Electric training data for
-the string head is the fix, not a different constant.
+| Thunderstruck, threshold .75 | open | B3 open | B3 at 3/4 | fingertip support |
+|---|---:|---:|---:|---:|
+| previous default: v3-aug, weight 0 | 33 | 30 | 15 | .652 |
+| retrained, weight 0 | 32 | 30 | 14 | .677 |
+| retrained, weight .25 | 6 | 5 | 42 | .484 |
+| retrained, .25, restriction .5 | 16 | 15 | 33 | .543 |
+| **retrained, .25, restriction 1** | **36** | **34** | **14** | **.721** |
+
+Fingertip support is the camera's independent judgement, and the restricted
+term earns more of it than any other setting, including the term switched off.
+A misplaced open string is the error a reader notices first; the trade was
+taken knowingly. On IDMT, scored once in this configuration, string accuracy
+goes .509 -> .586 against the previous default.
+
+Gating the term on the head's own confidence was tried before and does not
+work: the head is confidently wrong, not uncertain. Gating it on distortion
+was considered and not needed — see
+[note verifier](note-verifier.md#rejected-ideas).
 
 ## Main rules
 
@@ -266,8 +304,9 @@ string posterior supplies, and open strings are where it helps most.
 
 ## Remaining limitations
 
-- The audio string posterior is trained on acoustic guitar and should not be
-  trusted on an unfamiliar instrument.
+- The audio string posterior is trained on six acoustic and three electric
+  guitars. Through a room it cannot tell an open string from a fretted one,
+  which is why it is not allowed to.
 - Neck position is planned across the clip and each onset's voicing is solved
   as a whole, but the two are decided in sequence, not together.
 - Open-only passages inherit position from neighboring chords.

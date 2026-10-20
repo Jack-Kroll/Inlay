@@ -3,9 +3,10 @@ term the string head feeds. No trained checkpoint and no dataset on disk."""
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import numpy as np
 
-from processing.music import verify
+from processing.music import fusion, verify
 from processing.music.fusion import Sounded, AUDIO_STRING_WEIGHT, assign_positions
 from processing.music.tuning import STANDARD_TUNING
 from processing.tools import idmt
@@ -171,9 +172,32 @@ class AudioStringTerm(unittest.TestCase):
             posterior = np.full(6, .01, np.float32)
             posterior[index] = .95
             notes = [Sounded(64, 0., .5, string_posterior=posterior)]
-            placed = assign_positions(notes, [], STANDARD_TUNING, 22,
-                                      audio_weight=.9)
+            with mock.patch.object(fusion, 'OPEN_AUDIO_NEUTRAL', 0.):
+                placed = assign_positions(notes, [], STANDARD_TUNING, 22,
+                                          audio_weight=.9)
             self.assertEqual(placed[0].string, expected)
+
+    def test_audio_cannot_argue_a_note_off_an_open_string(self):
+        # E4: open on string 1, or fret 5 on string 2. Audio is sure of string 2.
+        posterior = np.full(6, .01, np.float32)
+        posterior[1] = .95
+        notes = [Sounded(64, 0., .5, string_posterior=posterior)]
+        with mock.patch.object(fusion, 'OPEN_AUDIO_NEUTRAL', 0.):
+            moved = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=.25)
+        with mock.patch.object(fusion, 'OPEN_AUDIO_NEUTRAL', 1.):
+            kept = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=.25)
+            # It can still choose between two fretted spellings: B3 at 2/0 is
+            # open, so ask about G#3, 3/1 or 4/6.
+            posterior = np.full(6, .01, np.float32)
+            posterior[3] = .95
+            fretted = assign_positions([Sounded(56, 0., .5, string_posterior=posterior)],
+                                       [], STANDARD_TUNING, 22, audio_weight=.25)
+        without = assign_positions([Sounded(64, 0., .5)], [], STANDARD_TUNING, 22,
+                                   audio_weight=0.)
+        self.assertEqual((moved[0].string, moved[0].fret), (2, 5))
+        self.assertEqual((kept[0].string, kept[0].fret),
+                         (without[0].string, without[0].fret))
+        self.assertEqual(fretted[0].string, 4)
 
     def test_zero_weight_ignores_the_posterior(self):
         loud = np.zeros(6, np.float32); loud[3] = 1.

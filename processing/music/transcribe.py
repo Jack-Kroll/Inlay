@@ -26,7 +26,7 @@ from processing.vision.preview import draw_text, draw_observation, open_capture
 from processing.vision.tracker import FretboardTracker, decode_maps, transform_observation
 from processing.vision import DEFAULT_MODEL
 from .fretboard import DEFAULT_STRING_INSET, board_transform
-from . import verify
+from . import fusion, verify
 from .fusion import (AUDIO_STRING_WEIGHT, assign_positions, finger_contacts,
                      hand_position, plan_positions, unexplained_contacts)
 from .hands import CONNECTIONS, HandTracker, fretting_hand
@@ -411,6 +411,9 @@ def main():
                         help=f'How much audio timbre decides the string '
                              f'(default {AUDIO_STRING_WEIGHT}); 0 leaves it to the camera '
                              'and musical context')
+    parser.add_argument('--open-audio-neutral', type=float,
+                        help='0 to 1: how far audio is kept from arguing a note off an '
+                             f'open string (default {fusion.OPEN_AUDIO_NEUTRAL})')
     # The thresholds below are the fallback when no verifier is used; they were
     # tuned on GuitarSet, see docs/pitch-tuning.md.
     parser.add_argument('--onset-threshold', type=float, default=.6)
@@ -440,6 +443,8 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     args.tuning = tuning
+    if args.open_audio_neutral is not None:
+        fusion.OPEN_AUDIO_NEUTRAL = args.open_audio_neutral
     args.output.mkdir(parents=True, exist_ok=True)
     from processing.training.train import select_device
     device = select_device(args.device)
@@ -529,6 +534,7 @@ def main():
             'audio_string_weight': (args.audio_string_weight
                                     if args.audio_string_weight is not None
                                     else AUDIO_STRING_WEIGHT),
+            'open_audio_neutral': fusion.OPEN_AUDIO_NEUTRAL,
             'tuning': list(tuning), 'max_fret': args.max_fret, 'string_inset': args.inset,
             'string_order': 'flipped' if args.flipped else 'normal',
             'string_order_selected': args.string_order,
