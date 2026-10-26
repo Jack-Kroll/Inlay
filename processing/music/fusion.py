@@ -8,7 +8,7 @@ heuristics chosen to be legible, not calibrated against annotated playing.
 from __future__ import annotations
 from dataclasses import dataclass, field
 import numpy as np
-from .fretboard import DEFAULT_STRING_INSET
+from .fretboard import DEFAULT_STRING_INSET, fret_ratio, ratio_to_fret
 from .hands import FRETTING_FINGERS
 from .tuning import STANDARD_TUNING, candidates, note_name
 
@@ -63,6 +63,22 @@ OPEN_CREDIT = .7
 BLIND_OPEN_CREDIT = 0.
 
 
+# MediaPipe's fingertip landmark is the end of the finger, seen from above the
+# board; the string is stopped by the pad behind it. On Kaggle's labelled
+# stills the fingertip fell past the pressed cell -- towards the body -- for 29%
+# of fingers on the development recordings and 73% on the held-out ones, and
+# short of it for 0.7% and 9%. A constant distance, which becomes a whole fret
+# where frets are narrow. This moves the located point back towards the nut by
+# that distance, as a fraction of scale length: 1% is 6.5 mm on a Stratocaster.
+#
+# Chosen on the development recordings alone, where string accuracy given the
+# pitch peaked at .010 (.7949 -> .7967, flat from .008 to .016). Scored once on
+# the held-out recordings: .6726 -> .6840, with the fingertip's own fret right
+# twice as often (.099 -> .203). Knowing the pitch already rules out most
+# wrong strings, so the larger effect is on fingertip support and the planned
+# hand position, which read the fret directly. Kaggle is one player on one
+# guitar; see docs/alignment.md.
+FINGERTIP_SETBACK = .010
 # Neck positions are planned on a whole-fret grid; the hand needs no finer
 # resolution than that. MOVE_PENALTY is the cost of shifting one fret, against
 # an emission worth at most 1 per note, so a shift must pay for itself. Both
@@ -167,6 +183,9 @@ class FingerContact:
     fret_float: float    # Continuous board position, e.g. 4.3 = just past wire 4.
     string_float: float
     on_board: bool       # False if the fingertip is off the string band or neck.
+    # Where the fingertip itself was, before FINGERTIP_SETBACK; None on contacts
+    # built before the setback existed, whose fret_float is the fingertip.
+    tip_fret: float | None = None
 
     @property
     def label(self):
@@ -216,6 +235,30 @@ class Sounded:
     string_posterior: np.ndarray | None = None
 
 
+def place_contact(finger, point, tip_fret, string_float, strings=6, max_fret=22, margin=.6,
+                  setback=None):
+    """A ``FingerContact`` for a fingertip seen at continuous fret ``tip_fret``,
+    moved ``setback`` of the scale length back towards the nut first."""
+    setback = FINGERTIP_SETBACK if setback is None else setback
+    fret_float = float(ratio_to_fret(fret_ratio(tip_fret) - setback))
+    # A finger between wires 4 and 5 (fret_float 4.3) sounds fret 5, so round up.
+    fret = int(np.ceil(fret_float - 1e-9))
+    string = int(round(string_float))
+    on_board = (0 < fret <= max_fret and 1 - margin <= string_float <= strings + margin)
+    return FingerContact(finger, np.asarray(point, float), max(fret, 0),
+                         min(max(string, 1), strings), fret_float, float(string_float),
+                         on_board, float(tip_fret))
+
+
+def contact_from_cache(row, strings=6, max_fret=22, setback=None):
+    """Rebuild a cached contact under the current setback. Caches written
+    before ``tip_fret`` existed hold the fingertip itself in ``fret_float``."""
+    tip = row.get('tip_fret')
+    tip = row['fret_float'] if tip is None else tip
+    return place_contact(row['finger'], row['point'], tip, row['string_float'], strings,
+                         max_fret, setback=setback)
+
+
 def finger_contacts(hand, transform, fingers=FRETTING_FINGERS, max_fret=22, margin=.6):
     """Locate fingertips on the board. Off-board fingertips are kept but marked."""
     if hand is None or transform is None:
@@ -227,14 +270,8 @@ def finger_contacts(hand, transform, fingers=FRETTING_FINGERS, max_fret=22, marg
     for name, point, fret_float, string_float in zip(names, points, frets, strings):
         if not np.isfinite(fret_float) or not np.isfinite(string_float):
             continue
-        # A finger between wires 4 and 5 (fret_float 4.3) sounds fret 5, so round up.
-        fret = int(np.ceil(fret_float - 1e-9))
-        string = int(round(string_float))
-        on_board = (0 < fret <= max_fret
-                    and 1 - margin <= string_float <= transform.strings + margin)
-        contacts.append(FingerContact(name, point, max(fret, 0),
-                                      min(max(string, 1), transform.strings),
-                                      float(fret_float), float(string_float), on_board))
+        contacts.append(place_contact(name, point, float(fret_float), float(string_float),
+                                      transform.strings, max_fret, margin))
     return contacts
 
 

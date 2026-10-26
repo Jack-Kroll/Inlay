@@ -69,7 +69,8 @@ device are environment variables. See [the service](docs/service.md).
 1. `FretboardNet` predicts heatmaps for the neck, fret wires, and nut.
 2. The tracker stabilizes that geometry across short detection gaps.
 3. Basic Pitch, fine-tuned on guitar (`processing/music/frontend.py`), produces
-   a posteriorgram over pitch and time.
+   a posteriorgram over pitch and time. The soundtrack is read on the video's
+   clock, so notes and frames line up (see [alignment](docs/alignment.md)).
 4. A learned note verifier reads that posteriorgram, plus a constant-Q
    transform of the audio, and decides which attacks are real notes, when they
    started, and which string played each one.
@@ -176,8 +177,8 @@ diagnostic of visual consistency, not independent reference accuracy. See
 
 More detail is available in [the note verifier](docs/note-verifier.md),
 [transcription](docs/transcription.md), [pitch tuning](docs/pitch-tuning.md),
-[tab logic](docs/tab-logic.md), [the fine-tuned front end](docs/front-end-finetune.md),
-and the
+[tab logic](docs/tab-logic.md), [audio/video alignment](docs/alignment.md),
+[the fine-tuned front end](docs/front-end-finetune.md), and the
 [dataset review](docs/dataset-review.md).
 
 ## Code layout

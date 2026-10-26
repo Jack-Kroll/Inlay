@@ -214,6 +214,27 @@ front-end AP the longer the front end trains, which is not understood. Nothing
 here involves the camera.
 
 
+## On the clips
+
+The six clips in `clips/`, transcribed by the CLI with everything now default --
+the fine-tuned front end, v11-ft1-egfx, the soundtrack on the video's clock and
+the fingertip setback ([alignment](alignment.md)) -- against the October 19
+transcriptions. No reference tab exists for them; fingertip support is the
+camera's agreement with the notes, not accuracy.
+
+| clip | notes | fingertip support | notes placed open |
+|---|---:|---:|---:|
+| Blackbird | 38 → 32 | .692 → .833 | 12 → 8 |
+| Loser | 29 → 31 | .931 → .839 | 0 → 0 |
+| Seven Nation Army | 53 → 57 | .891 → .923 | 7 → 5 |
+| Sweet Child O Mine | 64 → 63 | .906 → .968 | 0 → 0 |
+| take-4 | 78 → 84 | .741 → .793 | 24 → 26 |
+| Thunderstruck | 95 → 97 | .717 → .712 | 35 → 45 |
+| mean | | .813 → .845 | |
+
+Thunderstruck is documented as having 48 open B3s. The outputs are in
+`runs/transcribe-final/`.
+
 ## Reproduce
 
 ```sh

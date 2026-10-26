@@ -59,16 +59,56 @@ class Posteriorgram:
     contour: np.ndarray | None = None
 
 
+def stream_offset(media):
+    """Seconds the soundtrack starts after the first video frame, per the
+    container, and the soundtrack's sample rate: (offset, rate).
+
+    iPhone recordings start their audio 70 to 95 ms after their video. Players
+    honour that; a plain ffmpeg decode to WAV does not, so every note would sit
+    that much early against the frames it is matched with -- two or three
+    frames, enough to read a finger that has already left. (0, None) when
+    either stream or ffprobe is missing.
+    """
+    if not shutil.which('ffprobe'):
+        return 0., None
+    result = subprocess.run(
+        ['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_type,start_time,sample_rate',
+         '-of', 'json', str(media)], capture_output=True, text=True)
+    try:
+        import json
+        streams = json.loads(result.stdout).get('streams', [])
+    except ValueError:
+        return 0., None
+    first = lambda kind: next((s for s in streams if s.get('codec_type') == kind), None)
+    audio, video = first('audio'), first('video')
+    if audio is None or video is None:
+        return 0., None
+    try:
+        offset = float(audio['start_time']) - float(video['start_time'])
+        rate = int(audio['sample_rate'])
+    except (KeyError, TypeError, ValueError):
+        return 0., None
+    return offset, rate
+
+
 def extract_audio(media, destination, sample_rate=SAMPLE_RATE):
-    """Decode the media soundtrack to mono WAV with ffmpeg."""
+    """Decode the media soundtrack to mono WAV with ffmpeg, on the video's clock:
+    sample zero is the first video frame (see ``stream_offset``)."""
     if not shutil.which('ffmpeg'):
         raise RuntimeError('ffmpeg is required to read audio from video. Install it '
                            '(brew install ffmpeg) or pass --audio with a WAV file.')
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    offset, rate = stream_offset(media)
+    align = []
+    if rate and offset > 0:
+        # Pad with silence, counted in the source's own samples so it is exact.
+        align = ['-af', f'adelay=delays={int(round(offset*rate))}S:all=1']
+    elif rate and offset < 0:
+        align = ['-af', f'atrim=start={-offset:.6f},asetpts=PTS-STARTPTS']
     result = subprocess.run(
         ['ffmpeg', '-nostdin', '-loglevel', 'error', '-y', '-i', str(media),
-         '-vn', '-ac', '1', '-ar', str(sample_rate), str(destination)],
+         '-vn', *align, '-ac', '1', '-ar', str(sample_rate), str(destination)],
         capture_output=True, text=True)
     if result.returncode or not destination.is_file() or not destination.stat().st_size:
         raise RuntimeError(f'ffmpeg could not extract audio from {media}: '

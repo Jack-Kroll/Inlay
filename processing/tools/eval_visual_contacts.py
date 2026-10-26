@@ -115,7 +115,7 @@ def extract(root, output, model, device, limit=0):
     print(json.dumps(audit, indent=2))
 
 
-def measure(rows, split, fret_weight=0.):
+def measure(rows, split, fret_weight=0., setback=None):
     """Same frames and oracle pitches for every variant; no sound/press inference."""
     counts = Counter()
     for row in rows:
@@ -124,7 +124,7 @@ def measure(rows, split, fret_weight=0.):
         counts['frames'] += 1
         counts['board'] += row['board']
         counts['hand'] += row['hand']
-        contacts = [fusion.FingerContact(**c) for c in row['contacts']]
+        contacts = [fusion.contact_from_cache(c, setback=setback) for c in row['contacts']]
         by_finger = {c.finger: c for c in contacts}
         for finger, (press, fret, string) in zip(FRETTING_FINGERS, row['label']):
             # Barre annotations have no single string; do not invent one.
@@ -187,8 +187,9 @@ def stabilize(rows, window=.2):
             else:
                 samples = [a, b]
             pooled = deepcopy(a)
-            for key in ('fret_float', 'string_float'):
-                pooled[key] = float(np.median([p[key] for p in samples]))
+            for key in ('fret_float', 'string_float', 'tip_fret'):
+                if all(p.get(key) is not None for p in samples):
+                    pooled[key] = float(np.median([p[key] for p in samples]))
             pooled['fret'] = int(np.ceil(pooled['fret_float'] - 1e-9))
             pooled['string'] = min(6, max(1, round(pooled['string_float'])))
             present[name] = pooled
@@ -208,6 +209,9 @@ def main():
     parser.add_argument('--split', choices=('dev', 'test'), default='dev')
     parser.add_argument('--fret-weight', type=float, default=0.)
     parser.add_argument('--temporal-window', type=float, default=0.)
+    parser.add_argument('--setback', type=float,
+                        help=f'Fingertip setback towards the nut, fraction of scale length '
+                             f'(default fusion.FINGERTIP_SETBACK, {fusion.FINGERTIP_SETBACK})')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     if args.extract:
@@ -215,7 +219,7 @@ def main():
     rows = [json.loads(line) for line in args.cache.read_text().splitlines()]
     if args.temporal_window:
         rows = stabilize(rows, args.temporal_window)
-    result = measure(rows, args.split, args.fret_weight)
+    result = measure(rows, args.split, args.fret_weight, args.setback)
     print(json.dumps(result, indent=2))
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

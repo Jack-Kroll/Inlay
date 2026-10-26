@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 import numpy as np
 
-from processing.music.fusion import FingerContact, Sounded, assign_positions
+from processing.music.fusion import Sounded, assign_positions, contact_from_cache
 from processing.music.hands import FRETTING_FINGERS
 from processing.music.tuning import STANDARD_TUNING, candidates
 from processing.music.visual_evidence import VisualContext, VisualPolicy
@@ -38,7 +38,7 @@ def evaluate(rows, audio_root, policy, split):
     for recording in recordings:
         frames = [row for row in rows if row['recording'] == recording]
         samples = [dict(timestamp=row['timestamp'], quality=row['quality'],
-                        contacts=[FingerContact(**c) for c in row['contacts']]) for row in frames]
+                        contacts=[contact_from_cache(c) for c in row['contacts']]) for row in frames]
         context = VisualContext(samples, policy)
         with np.load(audio_root/f'{recording}.npz') as audio:
             pitches = audio['pitch'] + verify.LOWEST_BIN
