@@ -108,29 +108,32 @@ for details.
 
 ## Current results and limits
 
-Audio against annotated audio, no video, threshold .75, as shipped: the
+Audio against annotated audio, no video, threshold .75, current defaults: the
 verifier trained on GuitarSet and Guitar-TECHS, the audio string term at .25,
 and audio not allowed to argue a note off an open string. "Previous" is the
 default before Guitar-TECHS: the acoustic-only verifier with the string term
-off.
+off. Current rows include the open-string rival correction and duplicate
+suppression after timing refinement. Previous rows are historical measurements
+with the earlier decoder. These are previously inspected regression corpora;
+see [the confidence and missed-note experiments](docs/visual-confidence-and-missed-notes.md).
 
 | held out of training | | note F1 | string | tab F1 |
 |---|---|---:|---:|---:|
 | GuitarSet player 05, acoustic, 8,715 notes | previous | `.894` | `.664` | `.594` |
-| | shipped | `.893` | `.865` | `.773` |
+| | current | `.902` | `.869` | `.784` |
 | Guitar-TECHS player P3, electric, amp mic | previous | `.703` | `.472` | `.332` |
-| | shipped | `.726` | `.627` | `.455` |
+| | current | `.731` | `.612` | `.448` |
 | IDMT-SMT-GUITAR, four electrics, 5,164 notes | previous | `.820` | `.509` | `.418` |
-| | shipped | `.837` | `.586` | `.490` |
+| | current | `.850` | `.585` | `.497` |
 
-The Guitar-TECHS row is player P3; on its room microphones string accuracy
-goes `.518` to `.560` (5 ft in front) and `.488` to `.565` (head-mounted).
+The Guitar-TECHS row is player P3; earlier room-microphone measurements gave
+`.518` to `.560` (5 ft in front) and `.488` to `.565` (head-mounted).
 Nothing on IDMT is trained on, and nothing shipped was chosen on it.
 
-On a phone recording of Thunderstruck, where the string term on its own put
-42 of 48 open-B notes on the G string, the shipped configuration keeps 34 open
-and has the highest fingertip support — the camera's independent opinion — of
-any setting tried, `.721` against `.652` before. See
+In the earlier Thunderstruck open-string experiment, the string term on its
+own put 42 of 48 open-B notes on the G string. The selected configuration kept
+34 open and increased fingertip agreement from `.652` to `.721`. This is a
+diagnostic of visual consistency, not independent reference accuracy. See
 [tab logic](docs/tab-logic.md#the-default-and-the-one-thing-audio-may-not-decide).
 
 - Complete audio/video transcription accuracy has still not been measured.

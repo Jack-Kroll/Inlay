@@ -63,9 +63,10 @@ PEAK_WIDTH = 1
 # weakened that coupling. Pass --verifier-threshold .85 for the F1-optimal
 # setting. See docs/note-verifier.md.
 SCORE_THRESHOLD = .75
-# Notes closer together than the onset tolerance cannot both be real attacks
-# on one string, so the weaker is suppressed.
+# Nominal deduplication window for attacks at one pitch. Fast repeats and
+# unisons can fall inside it; the measured precision/recall tradeoff matters.
 ONSET_TOLERANCE = .05
+SUPPRESSION_MODE = 'both'  # Remove duplicates before and after onset refinement.
 OFFSET_GATE = .30
 OFFSET_RELATIVE = .45
 
@@ -243,7 +244,7 @@ def suppress(frame, pitch, score, window):
     """Keep the best candidate per pitch within ``window`` frames of it."""
     kept, claimed = [], {}
     for index in np.argsort(-score):
-        column, row = int(pitch[index]), int(frame[index])
+        column, row = int(pitch[index]), float(frame[index])
         if any(abs(row - other) <= window for other in claimed.get(column, ())):
             continue
         claimed.setdefault(column, []).append(row)
@@ -273,19 +274,51 @@ def score(model, prepared, frame, pitch, channels, device=None, batch=1024):
     return exists, deltas, strings
 
 
+def strong_attack_candidates(note, onset, frame, pitch, scores, threshold=SCORE_THRESHOLD):
+    """Boolean eligibility for rejected candidates with strong independent BP support.
+
+    Does not create pitches or mutate activations/scores. At the measured .75
+    operating point, require verifier >=.5, onset >=.75 and note >=.5. Keep the
+    existing threshold and same-pitch suppression for the final decode.
+    """
+    if not np.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ValueError('Verifier threshold must be finite and between 0 and 1')
+    eligible = ((scores >= max(.5, threshold-.25)) & (scores < threshold)
+                & (onset[frame, pitch] >= .75) & (note[frame, pitch] >= .5))
+    return eligible
+
+
 def decode(note, onset, times, exists, deltas, strings, frame, pitch,
-           threshold=SCORE_THRESHOLD, refine=True):
+           threshold=SCORE_THRESHOLD, refine=True, suppression_seconds=ONSET_TOLERANCE,
+           accepted=None, suppression_mode=SUPPRESSION_MODE):
     """Verifier scores -> (start, end, midi, confidence, string posterior).
 
     Offsets still come from the frame head: the verifier answers whether a note
-    started, not how long it rang.
+    started, not how long it rang. Optional ``accepted`` adds recovery candidates
+    without inflating their original confidence or their suppression priority.
     """
     frames = min(note.shape[0], len(times))
-    keep = np.flatnonzero(exists >= threshold)
+    eligible = exists >= threshold
+    if accepted is not None:
+        accepted = np.asarray(accepted, dtype=bool)
+        if accepted.shape != eligible.shape:
+            raise ValueError('Recovery eligibility must match candidate scores')
+        eligible = eligible | accepted
+    keep = np.flatnonzero(eligible)
     if not len(keep):
         return []
-    kept = keep[suppress(frame[keep], pitch[keep], exists[keep],
-                         int(round(ONSET_TOLERANCE*FPS)))]
+    if not np.isfinite(suppression_seconds) or suppression_seconds < 0:
+        raise ValueError('suppression_seconds must be finite and non-negative')
+    if suppression_mode not in ('raw', 'refined', 'both'):
+        raise ValueError('Unknown suppression mode')
+    window = int(round(suppression_seconds*FPS))
+    refined = np.maximum(0., times[frame] + (deltas/FPS if refine else 0.))
+    positions = refined*FPS if suppression_mode == 'refined' else frame
+    kept = keep[suppress(positions[keep], pitch[keep], exists[keep], window)]
+    if suppression_mode == 'both':
+        # Separate raw peaks can refine to the same attack. Leaving both in
+        # the chord forces one duplicate onto a different guitar string.
+        kept = kept[suppress(refined[kept]*FPS, pitch[kept], exists[kept], window)]
     # Sort by pitch then frame so each note's successor on its own pitch is the
     # next row: that is what ends a note when the string is plucked again.
     kept = kept[np.lexsort((frame[kept], pitch[kept]))]

@@ -382,10 +382,13 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual((first.string, first.fret), (2, 5))
 
     def test_equal_geometry_scores_favor_louder_note_on_contested_string(self):
-        notes = [NoteEvent(0, 1, 41, .2), NoteEvent(0, 1, 42, .9)]
-        assigned = assign_positions(notes, [])
-        self.assertIsNone(assigned[0].string)
-        self.assertEqual(assigned[1].string, 6)
+        for reverse in (False, True):
+            notes = [NoteEvent(0, 1, 41, .2), NoteEvent(0, 1, 42, .9)]
+            if reverse:
+                notes.reverse()
+            assigned = {n.pitch: n for n in assign_positions(notes, [])}
+            self.assertIsNone(assigned[41].string)
+            self.assertEqual(assigned[42].string, 6)
 
 
 class OverlayTests(unittest.TestCase):

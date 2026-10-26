@@ -199,6 +199,20 @@ class AudioStringTerm(unittest.TestCase):
                          (without[0].string, without[0].fret))
         self.assertEqual(fretted[0].string, 4)
 
+    def test_the_open_rule_does_not_favour_open_either(self):
+        # Neutral means open-versus-fretted differs by geometry alone, scaled
+        # as the term scales it -- not open whenever audio is unsure, which is
+        # what crediting the open spelling with the posterior's maximum did.
+        posterior = np.array([.10, .30, .25, .15, .10, .10], np.float32)
+        contacts = [fusion.FingerContact('index', np.zeros(2), 5, 2, 4.5, 2., True)]
+        def gap(weight, rival):
+            with mock.patch.object(fusion, 'OPEN_AUDIO_NEUTRAL', 1.):
+                opened = fusion._score(1, 0, contacts, 5., posterior, weight, rival)[0]
+                fretted = fusion._score(2, 5, contacts, 5., posterior, weight, rival)[0]
+            return opened - fretted
+        self.assertAlmostEqual(gap(.25, .30), .75*gap(0., .30), places=6)
+        self.assertGreater(gap(.25, float(posterior.max()) + .2), .75*gap(0., .30))
+
     def test_zero_weight_ignores_the_posterior(self):
         loud = np.zeros(6, np.float32); loud[3] = 1.
         notes = [Sounded(64, 0., .5, string_posterior=loud)]
@@ -229,7 +243,9 @@ class AudioStringTerm(unittest.TestCase):
         loud = np.zeros(6, np.float32); loud[0], loud[1] = .6, .4
         quiet = np.zeros(6, np.float32); quiet[0], quiet[1] = .55, .05
         notes = [Sounded(65, 0., .5, string_posterior=loud), Sounded(64, 0., .5, string_posterior=quiet)]
-        placed = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=.9)
+        # E4 on string 1 is open; this is about the onset, not the open rule.
+        with mock.patch.object(fusion, 'OPEN_AUDIO_NEUTRAL', 0.):
+            placed = assign_positions(notes, [], STANDARD_TUNING, 22, audio_weight=.9)
         self.assertEqual([note.string for note in placed], [2, 1])
         self.assertIn('string-taken', placed[0].flags)
 

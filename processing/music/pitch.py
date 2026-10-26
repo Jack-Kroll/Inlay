@@ -124,7 +124,7 @@ def raw_activations(audio, verbose=False):
 
 def verified_notes(activations, checkpoint, device=None, cqt=None, audio=None,
                    threshold=None, minimum_pitch=None, maximum_pitch=None,
-                   verbose=False):
+                   verbose=False, recover_attacks=False):
     """Re-decode a posteriorgram with the learned verifier.
 
     The thresholds in ``detect_notes`` throw away notes the network did see:
@@ -164,9 +164,13 @@ def verified_notes(activations, checkpoint, device=None, cqt=None, audio=None,
     rows, columns = rows.astype(np.int64), columns.astype(np.int64)
     exists, deltas, strings = verify.score(model, prepared, rows, columns,
                                            channels, device)
+    threshold = verify.SCORE_THRESHOLD if threshold is None else threshold
+    accepted = (verify.strong_attack_candidates(activations.note, activations.onset,
+                                                rows, columns, exists, threshold)
+                if recover_attacks else None)
     decoded = verify.decode(activations.note, activations.onset, activations.times,
                             exists, deltas, strings, rows, columns,
-                            verify.SCORE_THRESHOLD if threshold is None else threshold)
+                            threshold, accepted=accepted)
     if verbose:
         print(f'verifier: {len(rows)} candidates -> {len(decoded)} notes')
     # The verifier's own confidence stands in for loudness: the tab stage uses
@@ -235,7 +239,7 @@ def _pitch_of(frequency):
 
 
 def notes_from_media(media, audio=None, workdir=None, verifier=None, device=None,
-                     verifier_threshold=None, **kwargs):
+                     verifier_threshold=None, recover_attacks=False, **kwargs):
     """Detect notes in a video (audio extracted) or an existing audio file.
 
     With ``verifier`` set to a checkpoint, the notes are decoded by the learned
@@ -246,6 +250,8 @@ def notes_from_media(media, audio=None, workdir=None, verifier=None, device=None
     the soundtrack was read out of.
     """
     media = Path(media)
+    if recover_attacks and verifier is None:
+        raise ValueError('Strong-attack recovery requires a verifier checkpoint')
     if audio is None and media.suffix.lower() in ('.wav', '.flac', '.mp3', '.m4a', '.ogg'):
         audio = media
     if audio is None:
@@ -257,9 +263,15 @@ def notes_from_media(media, audio=None, workdir=None, verifier=None, device=None
     # The verifier replaces the thresholds, so the threshold decoder never runs.
     verbose = kwargs.get('verbose', False)
     activations = raw_activations(audio, verbose)
+    maximum_pitch = _pitch_of(kwargs.get('maximum_frequency'))
+    # Basic Pitch excludes the rounded upper-frequency bin. The verifier's
+    # pitch bound is inclusive, so translate the convention at this boundary.
+    if maximum_pitch is not None:
+        maximum_pitch -= 1
     notes = verified_notes(
         activations, verifier, device, audio=audio, verbose=verbose,
         threshold=verifier_threshold,
+        recover_attacks=recover_attacks,
         minimum_pitch=_pitch_of(kwargs.get('minimum_frequency')),
-        maximum_pitch=_pitch_of(kwargs.get('maximum_frequency')))
+        maximum_pitch=maximum_pitch)
     return notes, activations, Path(audio)

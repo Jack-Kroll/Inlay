@@ -113,6 +113,12 @@ def plan_positions(groups, observed, tuning=STANDARD_TUNING, max_fret=22):
     """
     if not groups:
         return []
+    if len(observed) != len(groups):
+        raise ValueError('Expected one observed hand position per onset group')
+    # Invalid geometric measurements must not make every path impossible.
+    # Ignore them like missing observations; retain valid anchors elsewhere.
+    observed = [p if p is not None and np.isfinite(p) and 0 <= p <= max_fret
+                else None for p in observed]
     grid = np.arange(max_fret + 1, dtype=float)
     # Emission: how well a group's pitches sit under a hand at each position.
     # For each note take its most reachable spelling, then sum over the chord.
@@ -137,8 +143,9 @@ def plan_positions(groups, observed, tuning=STANDARD_TUNING, max_fret=22):
         moved = score[:, None] - MOVE_PENALTY*np.abs(grid[:, None] - grid[None, :])
         source = np.argmax(moved, axis=0)
         score = moved[source, np.arange(len(grid))] + emissions[index]
-        if observed[index] is not None:
-            score = np.where(grid == round(observed[index]), score, -np.inf)
+        anchor = observed[index]
+        if anchor is not None:
+            score = np.where(grid == round(anchor), score, -np.inf)
         best[index] = source
     if not np.isfinite(score).any():
         return [None]*len(groups)
@@ -253,7 +260,7 @@ def hand_position(contacts):
 
 
 def _score(string, fret, contacts, position, posterior=None,
-           audio_weight=AUDIO_STRING_WEIGHT):
+           audio_weight=AUDIO_STRING_WEIGHT, rival=None, fret_weight=0.):
     """Return (score, finger, contact term) for one candidate spelling.
 
     geometry = CONTACT_WEIGHT * (is a fingertip on this cell?)
@@ -279,25 +286,35 @@ def _score(string, fret, contacts, position, posterior=None,
             if candidate.on_board and value > best:
                 best, finger = value, candidate.finger
         contact = best
+    # A fingertip's fret coordinate can be useful even when its interpolated
+    # string coordinate is uncertain. Keep the original contact value for
+    # support labels: fret-only agreement is not proof of a finger on a string.
+    geometric_contact = contact
+    if fret > 0 and fret_weight:
+        geometric_contact = max(
+            (_fret_term(c, fret) * (fret_weight + (1 - fret_weight)*_string_term(c, string))
+             for c in contacts if c.on_board), default=0.)
     if position is None:
-        geometry = contact
+        geometry = geometric_contact
     else:
         # Fret 0 needs no hand, so it is not judged on how near the fingers are.
         nearness = (OPEN_REACH if fret == 0 else
                     float(np.exp(-.5 * ((fret - position) / POSITION_WIDTH) ** 2)))
-        geometry = CONTACT_WEIGHT * contact + POSITION_WEIGHT * nearness
+        geometry = CONTACT_WEIGHT * geometric_contact + POSITION_WEIGHT * nearness
     if posterior is None or not audio_weight:
         return geometry, finger, contact
     heard = float(posterior[string - 1]) if 0 < string <= len(posterior) else 0.
-    if fret == 0 and OPEN_AUDIO_NEUTRAL:
-        # At 1, audio may say which string a fretted note is on but not that a
-        # note is not open: an open spelling is credited with the best any
-        # string was heard at, so open-versus-fretted is left to geometry.
-        heard += OPEN_AUDIO_NEUTRAL*(float(np.max(posterior)) - heard)
+    if fret == 0 and OPEN_AUDIO_NEUTRAL and rival is not None:
+        # At 1, audio may say which string a fretted note is on but not whether
+        # it is open: the open spelling is credited with what audio gave its
+        # best fretted rival, so the two differ by geometry alone, exactly as
+        # with the term off. Crediting it with the posterior's maximum instead
+        # would favour open whenever audio was unsure.
+        heard += OPEN_AUDIO_NEUTRAL*(rival - heard)
     return (1 - audio_weight)*geometry + audio_weight*heard, finger, contact
 
 
-def _match_strings(scored, strings):
+def _match_strings(scored, strings, amplitudes=None):
     """Choose one string per note so the whole onset scores highest together.
 
     Walking the spellings best-first gives each note the best string still
@@ -325,34 +342,36 @@ def _match_strings(scored, strings):
         if key not in best or score > best[key][0]:
             best[key] = (score, fret)
     order = sorted({index for index, _ in best})
-    # state[mask] = (total score, notes placed, where it came from) over the
+    # state[mask] = (total score, notes placed, amplitude, predecessor) over the
     # notes considered so far, where ``mask`` is the set of strings they used.
     # More notes placed breaks a tie, so a note is never dropped for nothing.
-    state = {0: (0., 0, (0, None))}
+    state = {0: (0., 0, 0., (0, None))}
     history = []
     for index in order:
         following = {}
-        for mask, (total, placed, _) in state.items():
-            step = (total, placed, (mask, None))   # Leave this note unplaced.
-            if mask not in following or step[:2] > following[mask][:2]:
+        for mask, (total, placed, amplitude, _) in state.items():
+            step = (total, placed, amplitude, (mask, None))   # Leave unplaced.
+            if mask not in following or step[:3] > following[mask][:3]:
                 following[mask] = step
             for string in range(1, strings + 1):
                 bit = 1 << (string - 1)
                 found = best.get((index, string))
                 if found is None or mask & bit:
                     continue
-                step = (total + found[0], placed + 1, (mask, (string, found[1])))
+                step = (total + found[0], placed + 1,
+                        amplitude + (amplitudes[index] if amplitudes is not None else 0.),
+                        (mask, (string, found[1])))
                 taken = mask | bit
-                if taken not in following or step[:2] > following[taken][:2]:
+                if taken not in following or step[:3] > following[taken][:3]:
                     following[taken] = step
         history.append(following)
         state = following
     chosen = {}
     if not history:
         return chosen
-    mask = max(state, key=lambda key: state[key][:2])
+    mask = max(state, key=lambda key: state[key][:3])
     for index, step in zip(reversed(order), reversed(history)):
-        _, _, (previous, taken) = step[mask]
+        _, _, _, (previous, taken) = step[mask]
         if taken is not None:
             chosen[index] = taken
         mask = previous
@@ -361,7 +380,7 @@ def _match_strings(scored, strings):
 
 def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
                      board=True, hand=True, occupied=(), position=None,
-                     audio_weight=AUDIO_STRING_WEIGHT):
+                     audio_weight=AUDIO_STRING_WEIGHT, fret_weight=0., visual_evidence=None):
     """Choose one (string, fret) per simultaneous note.
 
     No two notes may share a string, since one string sounds one pitch. The
@@ -376,6 +395,10 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
     consecutive same-string pairs overlap at all, so a ringing note that appears
     to collide with a later one is a re-pluck, not a conflict.
     """
+    if not 0 <= fret_weight <= 1:
+        raise ValueError('fret_weight must be between 0 and 1')
+    if visual_evidence is not None and len(visual_evidence) != len(notes):
+        raise ValueError('Expected one visual evidence entry per note')
     results = [TabNote(n.pitch, n.start, n.end, n.amplitude) for n in notes]
     # What audio thought of each string, per note, read off the incoming notes
     # rather than the results built from them: only the caller's notes carry it.
@@ -393,9 +416,24 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
             note.flags.append('out-of-range')
             continue
         posterior = posteriors[index]
+        effective_weight = audio_weight
+        proof = visual_evidence[index] if visual_evidence is not None else None
+        if proof is not None and posterior is not None and audio_weight and board and hand:
+            # Neighbors may confirm the current frame, never override a
+            # disagreeing current geometry or manufacture a pressed string.
+            geometric = [(_score(s, f, contacts, position)[0], s, f) for s, f in options]
+            _, best_string, best_fret = max(geometric)
+            if (best_string, best_fret) == (proof['string'], proof['fret']):
+                effective_weight = 0.
+                note.evidence['visual_priority'] = dict(proof, audio_weight_used=0.)
+        # What audio gave the best fretted spelling of this note, which an open
+        # spelling is credited with; see OPEN_AUDIO_NEUTRAL.
+        fretted = [float(posterior[string - 1]) for string, fret in options
+                   if fret > 0 and posterior is not None and 0 < string <= len(posterior)]
+        rival = max(fretted) if fretted else None
         for string, fret in options:
             score, finger, contact = _score(string, fret, contacts, position, posterior,
-                                            audio_weight)
+                                            effective_weight, rival, fret_weight=fret_weight)
             scored.append((score, contact, index, string, fret, finger))
     # Equal scores favour stronger audio activations, then lower-fret spellings.
     scored.sort(key=lambda row: (-row[0], -results[row[2]].amplitude, row[4], row[3]))
@@ -406,7 +444,7 @@ def assign_positions(notes, contacts, tuning=STANDARD_TUNING, max_fret=22,
     # Solve the onset as a whole, then apply what it decided. Its spellings go
     # first: a note it could not place must not take a string it promised to
     # one it did, and falls back to the best free spelling left.
-    chosen = _match_strings(scored, len(tuning))
+    chosen = _match_strings(scored, len(tuning), [n.amplitude for n in results])
     ordered = ([row for row in scored if chosen.get(row[2]) == (row[3], row[4])]
                + [row for row in scored if row[2] not in chosen])
     taken_note = set()

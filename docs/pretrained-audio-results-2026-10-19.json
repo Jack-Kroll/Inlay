@@ -1,0 +1,850 @@
+{
+  "protocol_sha256": "7771bf5645d896c4c503f178e8af198d3ae36a318658d859e69753f06de42bda",
+  "models": {
+    "inlay-v8-default-both": {
+      "guitarset05": {
+        "recordings": 60,
+        "matched": 7931,
+        "estimated": 8868,
+        "referenced": 8715,
+        "note_f1": 0.9021213672297105,
+        "precision": 0.8943391971132161,
+        "recall": 0.9100401606425703,
+        "tab_f1": 0.7843940169481886,
+        "string_accuracy": 0.8694994326062288,
+        "frame_pitch_f1": 0.8481014342944097,
+        "frame_pitch_counts": [
+          95584,
+          107176,
+          118231
+        ],
+        "frame_tab_f1": 0.752521017723653
+      },
+      "idmt": {
+        "recordings": 657,
+        "matched": 4321,
+        "estimated": 4999,
+        "referenced": 5164,
+        "note_f1": 0.8503394666929056,
+        "precision": 0.864372874574915,
+        "recall": 0.8367544539116963,
+        "tab_f1": 0.49709731378529964,
+        "string_accuracy": 0.5845869011802823,
+        "frame_pitch_f1": 0.8609837927118819,
+        "frame_pitch_counts": [
+          166807,
+          175375,
+          212105
+        ],
+        "frame_tab_f1": 0.5595231946782907
+      },
+      "native": {
+        "recordings": 6
+      },
+      "guitarset05_progression3": {
+        "recordings": 20,
+        "matched": 2781,
+        "estimated": 3072,
+        "referenced": 3014,
+        "note_f1": 0.9139007558330595,
+        "precision": 0.9052734375,
+        "recall": 0.9226940942269409,
+        "tab_f1": 0.7699638514623727,
+        "string_accuracy": 0.8425026968716289
+      },
+      "idmt_groups": {
+        "Fender Strat Clean Neck SC": {
+          "recordings": 78,
+          "matched": 78,
+          "estimated": 79,
+          "referenced": 78,
+          "note_f1": 0.9936305732484076,
+          "precision": 0.9873417721518988,
+          "recall": 1.0,
+          "tab_f1": 0.6369426751592356,
+          "string_accuracy": 0.6410256410256411
+        },
+        "Fender Strat Clean Neck SC Chords": {
+          "recordings": 44,
+          "matched": 223,
+          "estimated": 243,
+          "referenced": 242,
+          "note_f1": 0.9195876288659793,
+          "precision": 0.9176954732510288,
+          "recall": 0.9214876033057852,
+          "tab_f1": 0.7051546391752578,
+          "string_accuracy": 0.7668161434977578
+        },
+        "Ibanez Power Strat Clean Bridge HU": {
+          "recordings": 78,
+          "matched": 78,
+          "estimated": 78,
+          "referenced": 78,
+          "note_f1": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tab_f1": 0.6025641025641025,
+          "string_accuracy": 0.6025641025641025
+        },
+        "Ibanez Power Strat Clean Bridge HU Chords": {
+          "recordings": 44,
+          "matched": 232,
+          "estimated": 248,
+          "referenced": 242,
+          "note_f1": 0.9469387755102041,
+          "precision": 0.9354838709677419,
+          "recall": 0.9586776859504132,
+          "tab_f1": 0.6816326530612244,
+          "string_accuracy": 0.7198275862068966
+        },
+        "Ibanez Power Strat Clean Bridge+Neck SC": {
+          "recordings": 78,
+          "matched": 77,
+          "estimated": 78,
+          "referenced": 78,
+          "note_f1": 0.9871794871794872,
+          "precision": 0.9871794871794872,
+          "recall": 0.9871794871794872,
+          "tab_f1": 0.6410256410256411,
+          "string_accuracy": 0.6493506493506493
+        },
+        "Ibanez Power Strat Clean Neck HU": {
+          "recordings": 78,
+          "matched": 78,
+          "estimated": 78,
+          "referenced": 78,
+          "note_f1": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tab_f1": 0.717948717948718,
+          "string_accuracy": 0.717948717948718
+        },
+        "dataset2": {
+          "recordings": 252,
+          "matched": 3478,
+          "estimated": 4104,
+          "referenced": 4278,
+          "note_f1": 0.8298735385349558,
+          "precision": 0.8474658869395711,
+          "recall": 0.8129967274427302,
+          "tab_f1": 0.4617036506800286,
+          "string_accuracy": 0.5563542265669925
+        },
+        "dataset3": {
+          "recordings": 5,
+          "matched": 77,
+          "estimated": 91,
+          "referenced": 90,
+          "note_f1": 0.850828729281768,
+          "precision": 0.8461538461538461,
+          "recall": 0.8555555555555555,
+          "tab_f1": 0.5524861878453039,
+          "string_accuracy": 0.6493506493506493
+        }
+      }
+    },
+    "yourmt3-single-nops": {
+      "guitarset05": {
+        "recordings": 60,
+        "matched": 8208,
+        "estimated": 8694,
+        "referenced": 8715,
+        "note_f1": 0.9429605376529381,
+        "precision": 0.9440993788819876,
+        "recall": 0.9418244406196213,
+        "frame_pitch_f1": 0.9149609058820585,
+        "frame_pitch_counts": [
+          109648,
+          121447,
+          118231
+        ],
+        "elapsed_seconds": 388.55329333408736,
+        "audio_seconds": 1828.0726984126984,
+        "realtime_factor": 0.2125480532975878,
+        "devices": [
+          "mps"
+        ]
+      },
+      "idmt": {
+        "recordings": 657,
+        "matched": 3694,
+        "estimated": 5077,
+        "referenced": 5164,
+        "note_f1": 0.7214139244214433,
+        "precision": 0.7275950364388418,
+        "recall": 0.7153369481022464,
+        "frame_pitch_f1": 0.7068567004424954,
+        "frame_pitch_counts": [
+          125079,
+          141797,
+          212105
+        ],
+        "elapsed_seconds": 359.2815310477745,
+        "audio_seconds": 4504.633038548753,
+        "realtime_factor": 0.07975822402695057,
+        "devices": [
+          "mps"
+        ]
+      },
+      "native": {
+        "recordings": 6
+      },
+      "guitarset05_progression3": {
+        "recordings": 20,
+        "matched": 2885,
+        "estimated": 3036,
+        "referenced": 3014,
+        "note_f1": 0.9537190082644628,
+        "precision": 0.9502635046113307,
+        "recall": 0.9571997345719974
+      },
+      "guitar_only_diagnostic": {
+        "guitarset05": {
+          "recordings": 60,
+          "matched": 8205,
+          "estimated": 8689,
+          "referenced": 8715,
+          "note_f1": 0.9428866927143186,
+          "precision": 0.9442973875014385,
+          "recall": 0.9414802065404475
+        },
+        "idmt": {
+          "recordings": 657,
+          "matched": 2334,
+          "estimated": 3045,
+          "referenced": 5164,
+          "note_f1": 0.5686441710317943,
+          "precision": 0.7665024630541872,
+          "recall": 0.45197521301316806
+        },
+        "native": {
+          "recordings": 6
+        }
+      },
+      "idmt_groups": {
+        "Fender Strat Clean Neck SC": {
+          "recordings": 78,
+          "matched": 78,
+          "estimated": 78,
+          "referenced": 78,
+          "note_f1": 1.0,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "Fender Strat Clean Neck SC Chords": {
+          "recordings": 44,
+          "matched": 225,
+          "estimated": 254,
+          "referenced": 242,
+          "note_f1": 0.907258064516129,
+          "precision": 0.8858267716535433,
+          "recall": 0.9297520661157025
+        },
+        "Ibanez Power Strat Clean Bridge HU": {
+          "recordings": 78,
+          "matched": 76,
+          "estimated": 77,
+          "referenced": 78,
+          "note_f1": 0.9806451612903225,
+          "precision": 0.987012987012987,
+          "recall": 0.9743589743589743
+        },
+        "Ibanez Power Strat Clean Bridge HU Chords": {
+          "recordings": 44,
+          "matched": 234,
+          "estimated": 255,
+          "referenced": 242,
+          "note_f1": 0.9416498993963782,
+          "precision": 0.9176470588235294,
+          "recall": 0.9669421487603306
+        },
+        "Ibanez Power Strat Clean Bridge+Neck SC": {
+          "recordings": 78,
+          "matched": 76,
+          "estimated": 77,
+          "referenced": 78,
+          "note_f1": 0.9806451612903225,
+          "precision": 0.987012987012987,
+          "recall": 0.9743589743589743
+        },
+        "Ibanez Power Strat Clean Neck HU": {
+          "recordings": 78,
+          "matched": 76,
+          "estimated": 76,
+          "referenced": 78,
+          "note_f1": 0.987012987012987,
+          "precision": 1.0,
+          "recall": 0.9743589743589743
+        },
+        "dataset2": {
+          "recordings": 252,
+          "matched": 2850,
+          "estimated": 4169,
+          "referenced": 4278,
+          "note_f1": 0.6747957854859713,
+          "precision": 0.6836171743823459,
+          "recall": 0.6661991584852734
+        },
+        "dataset3": {
+          "recordings": 5,
+          "matched": 79,
+          "estimated": 91,
+          "referenced": 90,
+          "note_f1": 0.8729281767955801,
+          "precision": 0.8681318681318682,
+          "recall": 0.8777777777777778
+        }
+      }
+    },
+    "yourmt3-moe-multi-nops": {
+      "guitarset05": {
+        "recordings": 60,
+        "matched": 8225,
+        "estimated": 8856,
+        "referenced": 8715,
+        "note_f1": 0.9362016959763246,
+        "precision": 0.9287488708220416,
+        "recall": 0.9437751004016064,
+        "frame_pitch_f1": 0.905046510954581,
+        "frame_pitch_counts": [
+          109407,
+          123540,
+          118231
+        ],
+        "elapsed_seconds": 1174.0682259156602,
+        "audio_seconds": 1828.0726984126984,
+        "realtime_factor": 0.6422437285645668,
+        "devices": [
+          "cpu",
+          "mps"
+        ]
+      },
+      "idmt": {
+        "recordings": 657,
+        "matched": 3374,
+        "estimated": 4175,
+        "referenced": 5164,
+        "note_f1": 0.7225613020666024,
+        "precision": 0.8081437125748503,
+        "recall": 0.6533694810224632,
+        "frame_pitch_f1": 0.6877848610984096,
+        "frame_pitch_counts": [
+          116573,
+          126876,
+          212105
+        ],
+        "elapsed_seconds": 1036.6519867158495,
+        "audio_seconds": 4504.633038548753,
+        "realtime_factor": 0.23013017438815067,
+        "devices": [
+          "cpu"
+        ]
+      },
+      "native": {
+        "recordings": 6
+      },
+      "guitarset05_progression3": {
+        "recordings": 20,
+        "matched": 2859,
+        "estimated": 3072,
+        "referenced": 3014,
+        "note_f1": 0.9395333552415379,
+        "precision": 0.9306640625,
+        "recall": 0.9485733244857333
+      },
+      "guitar_only_diagnostic": {
+        "guitarset05": {
+          "recordings": 60,
+          "matched": 8224,
+          "estimated": 8847,
+          "referenced": 8715,
+          "note_f1": 0.9365675891128573,
+          "precision": 0.9295806488075053,
+          "recall": 0.9436603557085484
+        },
+        "idmt": {
+          "recordings": 657,
+          "matched": 2659,
+          "estimated": 3224,
+          "referenced": 5164,
+          "note_f1": 0.634000953743443,
+          "precision": 0.8247518610421837,
+          "recall": 0.5149109217660728
+        },
+        "native": {
+          "recordings": 6
+        }
+      },
+      "idmt_groups": {
+        "Fender Strat Clean Neck SC": {
+          "recordings": 78,
+          "matched": 70,
+          "estimated": 72,
+          "referenced": 78,
+          "note_f1": 0.9333333333333333,
+          "precision": 0.9722222222222222,
+          "recall": 0.8974358974358975
+        },
+        "Fender Strat Clean Neck SC Chords": {
+          "recordings": 44,
+          "matched": 228,
+          "estimated": 242,
+          "referenced": 242,
+          "note_f1": 0.9421487603305785,
+          "precision": 0.9421487603305785,
+          "recall": 0.9421487603305785
+        },
+        "Ibanez Power Strat Clean Bridge HU": {
+          "recordings": 78,
+          "matched": 67,
+          "estimated": 71,
+          "referenced": 78,
+          "note_f1": 0.8993288590604027,
+          "precision": 0.9436619718309859,
+          "recall": 0.8589743589743589
+        },
+        "Ibanez Power Strat Clean Bridge HU Chords": {
+          "recordings": 44,
+          "matched": 211,
+          "estimated": 224,
+          "referenced": 242,
+          "note_f1": 0.9055793991416309,
+          "precision": 0.9419642857142857,
+          "recall": 0.871900826446281
+        },
+        "Ibanez Power Strat Clean Bridge+Neck SC": {
+          "recordings": 78,
+          "matched": 65,
+          "estimated": 66,
+          "referenced": 78,
+          "note_f1": 0.9027777777777778,
+          "precision": 0.9848484848484849,
+          "recall": 0.8333333333333334
+        },
+        "Ibanez Power Strat Clean Neck HU": {
+          "recordings": 78,
+          "matched": 74,
+          "estimated": 77,
+          "referenced": 78,
+          "note_f1": 0.9548387096774194,
+          "precision": 0.961038961038961,
+          "recall": 0.9487179487179487
+        },
+        "dataset2": {
+          "recordings": 252,
+          "matched": 2582,
+          "estimated": 3333,
+          "referenced": 4278,
+          "note_f1": 0.6784916568125082,
+          "precision": 0.7746774677467747,
+          "recall": 0.6035530621785882
+        },
+        "dataset3": {
+          "recordings": 5,
+          "matched": 77,
+          "estimated": 90,
+          "referenced": 90,
+          "note_f1": 0.8555555555555555,
+          "precision": 0.8555555555555555,
+          "recall": 0.8555555555555555
+        }
+      }
+    },
+    "synthtab-pretrained": {
+      "guitarset05": {
+        "recordings": 60,
+        "matched": 5093,
+        "estimated": 10867,
+        "referenced": 8715,
+        "note_f1": 0.5201715861505464,
+        "precision": 0.46866660531885523,
+        "recall": 0.5843947217441193,
+        "tab_f1": 0.29230926360943726,
+        "string_accuracy": 0.5619477714510112,
+        "frame_pitch_f1": 0.7155367593660558,
+        "frame_pitch_counts": [
+          75375,
+          92450,
+          118231
+        ],
+        "frame_tab_f1": 0.4647007733984036,
+        "elapsed_seconds": 32.16755929158535,
+        "audio_seconds": 1828.0726984126984,
+        "realtime_factor": 0.017596433292568832,
+        "devices": [
+          "mps"
+        ]
+      },
+      "idmt": {
+        "recordings": 657,
+        "matched": 3834,
+        "estimated": 10736,
+        "referenced": 5164,
+        "note_f1": 0.48226415094339625,
+        "precision": 0.3571162444113264,
+        "recall": 0.7424477149496514,
+        "tab_f1": 0.24616352201257863,
+        "string_accuracy": 0.510432968179447,
+        "frame_pitch_f1": 0.7894962514454997,
+        "frame_pitch_counts": [
+          151905,
+          172710,
+          212105
+        ],
+        "frame_tab_f1": 0.47622886414890253,
+        "elapsed_seconds": 87.31342353927903,
+        "audio_seconds": 4504.633038548753,
+        "realtime_factor": 0.019383026939616948,
+        "devices": [
+          "mps"
+        ]
+      },
+      "native": {
+        "recordings": 6
+      },
+      "guitarset05_progression3": {
+        "recordings": 20,
+        "matched": 1833,
+        "estimated": 3819,
+        "referenced": 3014,
+        "note_f1": 0.5365139762915264,
+        "precision": 0.4799685781618225,
+        "recall": 0.6081619110816191,
+        "tab_f1": 0.2654763647007171,
+        "string_accuracy": 0.4948172394980906
+      },
+      "idmt_groups": {
+        "Fender Strat Clean Neck SC": {
+          "recordings": 78,
+          "matched": 58,
+          "estimated": 231,
+          "referenced": 78,
+          "note_f1": 0.37540453074433655,
+          "precision": 0.2510822510822511,
+          "recall": 0.7435897435897436,
+          "tab_f1": 0.18770226537216828,
+          "string_accuracy": 0.5
+        },
+        "Fender Strat Clean Neck SC Chords": {
+          "recordings": 44,
+          "matched": 197,
+          "estimated": 665,
+          "referenced": 242,
+          "note_f1": 0.43439911797133407,
+          "precision": 0.2962406015037594,
+          "recall": 0.8140495867768595,
+          "tab_f1": 0.28004410143329656,
+          "string_accuracy": 0.6446700507614214
+        },
+        "Ibanez Power Strat Clean Bridge HU": {
+          "recordings": 78,
+          "matched": 70,
+          "estimated": 201,
+          "referenced": 78,
+          "note_f1": 0.5017921146953405,
+          "precision": 0.3482587064676617,
+          "recall": 0.8974358974358975,
+          "tab_f1": 0.25089605734767023,
+          "string_accuracy": 0.5
+        },
+        "Ibanez Power Strat Clean Bridge HU Chords": {
+          "recordings": 44,
+          "matched": 202,
+          "estimated": 584,
+          "referenced": 242,
+          "note_f1": 0.4891041162227603,
+          "precision": 0.3458904109589041,
+          "recall": 0.8347107438016529,
+          "tab_f1": 0.3099273607748184,
+          "string_accuracy": 0.6336633663366337
+        },
+        "Ibanez Power Strat Clean Bridge+Neck SC": {
+          "recordings": 78,
+          "matched": 69,
+          "estimated": 224,
+          "referenced": 78,
+          "note_f1": 0.45695364238410596,
+          "precision": 0.3080357142857143,
+          "recall": 0.8846153846153846,
+          "tab_f1": 0.25165562913907286,
+          "string_accuracy": 0.5507246376811594
+        },
+        "Ibanez Power Strat Clean Neck HU": {
+          "recordings": 78,
+          "matched": 66,
+          "estimated": 214,
+          "referenced": 78,
+          "note_f1": 0.4520547945205479,
+          "precision": 0.308411214953271,
+          "recall": 0.8461538461538461,
+          "tab_f1": 0.22602739726027396,
+          "string_accuracy": 0.5
+        },
+        "dataset2": {
+          "recordings": 252,
+          "matched": 3105,
+          "estimated": 8444,
+          "referenced": 4278,
+          "note_f1": 0.48813079704448986,
+          "precision": 0.3677167219327333,
+          "recall": 0.7258064516129032,
+          "tab_f1": 0.24162867473667662,
+          "string_accuracy": 0.49500805152979066
+        },
+        "dataset3": {
+          "recordings": 5,
+          "matched": 67,
+          "estimated": 173,
+          "referenced": 90,
+          "note_f1": 0.5095057034220533,
+          "precision": 0.3872832369942196,
+          "recall": 0.7444444444444445,
+          "tab_f1": 0.22813688212927757,
+          "string_accuracy": 0.44776119402985076
+        }
+      }
+    },
+    "synthtab-guitarset-finetuned": {
+      "guitarset05": {
+        "recordings": 60,
+        "matched": 6431,
+        "estimated": 7744,
+        "referenced": 8715,
+        "note_f1": 0.7814569536423841,
+        "precision": 0.8304493801652892,
+        "recall": 0.7379231210556512,
+        "tab_f1": 0.7571541405917736,
+        "string_accuracy": 0.9689006375369305,
+        "frame_pitch_f1": 0.9310412799579479,
+        "frame_pitch_counts": [
+          113358,
+          125277,
+          118231
+        ],
+        "frame_tab_f1": 0.9164746378739446,
+        "elapsed_seconds": 31.393367290729657,
+        "audio_seconds": 1828.0726984126984,
+        "realtime_factor": 0.017172931534937465,
+        "devices": [
+          "mps"
+        ]
+      },
+      "idmt": {
+        "recordings": 657,
+        "matched": 3991,
+        "estimated": 11358,
+        "referenced": 5164,
+        "note_f1": 0.48311342452487593,
+        "precision": 0.35138228561366436,
+        "recall": 0.77285050348567,
+        "tab_f1": 0.32017915506597266,
+        "string_accuracy": 0.6627411676271611,
+        "frame_pitch_f1": 0.8433556929508003,
+        "frame_pitch_counts": [
+          163821,
+          176393,
+          212105
+        ],
+        "frame_tab_f1": 0.593280271697269,
+        "elapsed_seconds": 85.02286219480447,
+        "audio_seconds": 4504.633038548753,
+        "realtime_factor": 0.018874536830684015,
+        "devices": [
+          "mps"
+        ]
+      },
+      "native": {
+        "recordings": 6
+      },
+      "guitarset05_progression3": {
+        "recordings": 20,
+        "matched": 2177,
+        "estimated": 2570,
+        "referenced": 3014,
+        "note_f1": 0.7797277936962751,
+        "precision": 0.8470817120622568,
+        "recall": 0.7222959522229595,
+        "tab_f1": 0.7682664756446992,
+        "string_accuracy": 0.9853008727606798
+      },
+      "idmt_groups": {
+        "Fender Strat Clean Neck SC": {
+          "recordings": 78,
+          "matched": 75,
+          "estimated": 247,
+          "referenced": 78,
+          "note_f1": 0.46153846153846156,
+          "precision": 0.30364372469635625,
+          "recall": 0.9615384615384616,
+          "tab_f1": 0.2523076923076923,
+          "string_accuracy": 0.5466666666666666
+        },
+        "Fender Strat Clean Neck SC Chords": {
+          "recordings": 44,
+          "matched": 204,
+          "estimated": 577,
+          "referenced": 242,
+          "note_f1": 0.4981684981684982,
+          "precision": 0.3535528596187175,
+          "recall": 0.8429752066115702,
+          "tab_f1": 0.36385836385836384,
+          "string_accuracy": 0.7303921568627451
+        },
+        "Ibanez Power Strat Clean Bridge HU": {
+          "recordings": 78,
+          "matched": 77,
+          "estimated": 253,
+          "referenced": 78,
+          "note_f1": 0.4652567975830816,
+          "precision": 0.30434782608695654,
+          "recall": 0.9871794871794872,
+          "tab_f1": 0.3081570996978852,
+          "string_accuracy": 0.6623376623376623
+        },
+        "Ibanez Power Strat Clean Bridge HU Chords": {
+          "recordings": 44,
+          "matched": 217,
+          "estimated": 663,
+          "referenced": 242,
+          "note_f1": 0.47955801104972373,
+          "precision": 0.3273001508295626,
+          "recall": 0.8966942148760331,
+          "tab_f1": 0.34917127071823206,
+          "string_accuracy": 0.728110599078341
+        },
+        "Ibanez Power Strat Clean Bridge+Neck SC": {
+          "recordings": 78,
+          "matched": 77,
+          "estimated": 247,
+          "referenced": 78,
+          "note_f1": 0.47384615384615386,
+          "precision": 0.3117408906882591,
+          "recall": 0.9871794871794872,
+          "tab_f1": 0.30153846153846153,
+          "string_accuracy": 0.6363636363636364
+        },
+        "Ibanez Power Strat Clean Neck HU": {
+          "recordings": 78,
+          "matched": 77,
+          "estimated": 235,
+          "referenced": 78,
+          "note_f1": 0.49201277955271566,
+          "precision": 0.3276595744680851,
+          "recall": 0.9871794871794872,
+          "tab_f1": 0.3194888178913738,
+          "string_accuracy": 0.6493506493506493
+        },
+        "dataset2": {
+          "recordings": 252,
+          "matched": 3189,
+          "estimated": 8910,
+          "referenced": 4278,
+          "note_f1": 0.48362147406733397,
+          "precision": 0.3579124579124579,
+          "recall": 0.7454417952314165,
+          "tab_f1": 0.31877464361540797,
+          "string_accuracy": 0.6591407964879272
+        },
+        "dataset3": {
+          "recordings": 5,
+          "matched": 75,
+          "estimated": 226,
+          "referenced": 90,
+          "note_f1": 0.47468354430379744,
+          "precision": 0.33185840707964603,
+          "recall": 0.8333333333333334,
+          "tab_f1": 0.2848101265822785,
+          "string_accuracy": 0.6
+        }
+      }
+    }
+  },
+  "string_diagnostics": {
+    "inlay-v8-default-both": {
+      "guitarset05": {
+        "recordings": 60,
+        "note_f1": 0.9021213672297105,
+        "tab_f1": 0.7843940169481886,
+        "string_accuracy": 0.8694994326062288,
+        "direct_string_accuracy": 0.8976169461606355,
+        "direct_tab_f1": 0.8097594267189899,
+        "fallbacks": 0,
+        "matched": 7931,
+        "estimated": 8868,
+        "referenced": 8715
+      },
+      "idmt": {
+        "recordings": 657,
+        "note_f1": 0.8503394666929056,
+        "tab_f1": 0.49709731378529964,
+        "string_accuracy": 0.5845869011802823,
+        "direct_string_accuracy": 0.6058782689192317,
+        "direct_tab_f1": 0.5152022040736003,
+        "fallbacks": 0,
+        "matched": 4321,
+        "estimated": 4999,
+        "referenced": 5164
+      }
+    },
+    "synthtab-pretrained": {
+      "guitarset05": {
+        "recordings": 60,
+        "note_f1": 0.9021213672297105,
+        "tab_f1": 0.6082011033384519,
+        "string_accuracy": 0.6741898877821207,
+        "direct_string_accuracy": 0.5653763712016139,
+        "direct_tab_f1": 0.5100381049877722,
+        "fallbacks": 0,
+        "matched": 7931,
+        "estimated": 8868,
+        "referenced": 8715
+      },
+      "idmt": {
+        "recordings": 657,
+        "note_f1": 0.8503394666929056,
+        "tab_f1": 0.463249040637607,
+        "string_accuracy": 0.5447813006248553,
+        "direct_string_accuracy": 0.5072899791714881,
+        "direct_tab_f1": 0.4313686903473384,
+        "fallbacks": 4,
+        "matched": 4321,
+        "estimated": 4999,
+        "referenced": 5164
+      }
+    },
+    "synthtab-guitarset-finetuned": {
+      "guitarset05": {
+        "recordings": 60,
+        "note_f1": 0.9021213672297105,
+        "tab_f1": 0.8385372234544731,
+        "string_accuracy": 0.9295170848568907,
+        "direct_string_accuracy": 0.9741520615307023,
+        "direct_tab_f1": 0.8788033896377182,
+        "fallbacks": 1,
+        "matched": 7931,
+        "estimated": 8868,
+        "referenced": 8715
+      },
+      "idmt": {
+        "recordings": 657,
+        "note_f1": 0.8503394666929056,
+        "tab_f1": 0.5279937026468562,
+        "string_accuracy": 0.6209210830826197,
+        "direct_string_accuracy": 0.6530895626012497,
+        "direct_tab_f1": 0.5553478303650496,
+        "fallbacks": 4,
+        "matched": 4321,
+        "estimated": 4999,
+        "referenced": 5164
+      }
+    }
+  },
+  "caveats": [
+    "GS05 can overlap upstream checkpoint training; do not claim unseen-player generalization.",
+    "IDMT is measurement-only and previously inspected regression evidence.",
+    "SynthTab event scores use a contiguous frame-state transition decoder with no repeated-note onset head.",
+    "YourMT3 predicts notes/instruments and has no string/fret head.",
+    "Native clips have no independent reference tabs; replays are qualitative."
+  ],
+  "artifact_directory": "/Users/jackkroll/CS-Projects/inlay/runs/audio-model-benchmark-2026-10-19"
+}

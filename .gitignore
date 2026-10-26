@@ -1,4 +1,4 @@
-.venv/
+.venv
 __pycache__/
 *.py[cod]
 .DS_Store
@@ -11,5 +11,6 @@ runs/
 *.mlpackage/
 *.mlmodelc/
 *.zip
-data/
-clips/
+data
+clips
+external

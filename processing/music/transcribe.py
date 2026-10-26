@@ -74,7 +74,7 @@ def group_notes(notes, window=CHORD_WINDOW):
 
 
 def nearest_record(records, timestamps, timestamp, tolerance=.12):
-    """Frame closest to a note onset, preferring one that actually saw the board."""
+    """Closest board frame, recovering a missing hand from at most 40 ms away."""
     if not records:
         return None
     low = bisect_left(timestamps, timestamp-tolerance)
@@ -82,24 +82,39 @@ def nearest_record(records, timestamps, timestamp, tolerance=.12):
     order = sorted(range(low, high),
                    key=lambda i: abs(timestamps[i]-timestamp))
     fallback = records[order[0]] if order else None
-    for index in order:
-        if records[index].observation is not None:
-            return records[index]
-    return fallback
+    boarded = [records[index] for index in order
+               if records[index].observation is not None]
+    if not boarded:
+        return fallback
+    nearest = boarded[0]
+    if nearest.hand_points is None:
+        # A one-frame hand dropout should not discard nearby clear evidence.
+        # Keep this stricter than the board search: fingers move between notes.
+        for record in boarded:
+            if (record.hand_points is not None
+                    and abs(record.timestamp - timestamp) <= min(tolerance, .04)):
+                return record
+    return nearest
 
 
 def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=None,
-                     audio_weight=None):
+                     audio_weight=None, fret_weight=0., visual_priority=False, visual_policy=None):
     """Assign every note a (string, fret), one decision per chord.
 
     ``audio_weight`` overrides how much a note's audio string posterior counts;
     None uses ``fusion.AUDIO_STRING_WEIGHT``.
     """
     if audio_weight is None:
-        audio_weight = AUDIO_STRING_WEIGHT
+        audio_weight = fusion.AUDIO_STRING_WEIGHT
     timestamps = [r.timestamp for r in records]
     strings = len(tuning) if strings is None else strings
     groups = group_notes(notes)
+    visual_context = None
+    if visual_priority:
+        from .visual_evidence import VisualContext, VisualPolicy
+        visual_context = VisualContext.from_records(
+            records, strings, inset, flipped, max_fret,
+            policy=visual_policy if visual_policy is not None else VisualPolicy())
     # Pass one: what the video saw at each onset.
     evidence = []
     for group in groups:
@@ -129,7 +144,9 @@ def transcribe_notes(records, notes, tuning, max_fret, inset, flipped, strings=N
         results = assign_positions(group, contacts, tuning, max_fret,
                                    board=transform is not None, hand=hand is not None,
                                    occupied=sounding, position=position,
-                                   audio_weight=audio_weight)
+                                   audio_weight=audio_weight, fret_weight=fret_weight,
+                                   visual_evidence=([visual_context.placement(n.start, n.pitch, tuning, max_fret)
+                                                     for n in group] if visual_context is not None else None))
         for result in results:
             # Onset and pitch are not unique IDs (nor are rounded timestamps).
             assignments[len(assignments)] = result
@@ -411,6 +428,12 @@ def main():
                         help=f'How much audio timbre decides the string '
                              f'(default {AUDIO_STRING_WEIGHT}); 0 leaves it to the camera '
                              'and musical context')
+    parser.add_argument('--visual-priority', action='store_true',
+                        help='Experimental: favor stable, unambiguous fretted placements '
+                             'over audio string predictions')
+    parser.add_argument('--recover-strong-attacks', action='store_true',
+                        help='Experimental: recover rejected candidates with strong '
+                             'audio attack and pitch support')
     parser.add_argument('--open-audio-neutral', type=float,
                         help='0 to 1: how far audio is kept from arguing a note off an '
                              f'open string (default {fusion.OPEN_AUDIO_NEUTRAL})')
@@ -432,6 +455,13 @@ def main():
         parser.error('Invalid threshold, inset or max-fret')
     if args.hands < 1 or (args.max_frames is not None and args.max_frames < 1):
         parser.error('Invalid hands or max-frames')
+    if args.verifier_threshold is not None and not 0 <= args.verifier_threshold <= 1:
+        parser.error('Verifier threshold must be between 0 and 1')
+    if ((args.audio_string_weight is not None
+                and not 0 <= args.audio_string_weight <= 1)
+            or (args.open_audio_neutral is not None
+                and not 0 <= args.open_audio_neutral <= 1)):
+        parser.error('Fusion weights must be between 0 and 1')
     if (not np.isfinite(args.max_gap) or args.max_gap <= 0
             or not 0 <= args.onset_threshold <= 1 or not 0 <= args.frame_threshold <= 1
             or not np.isfinite(args.min_note_ms) or args.min_note_ms <= 0
@@ -456,6 +486,8 @@ def main():
         if verifier is None:
             print('No verifier checkpoint found; using Basic Pitch thresholds. '
                   'Train one with processing.training.train_verifier.', flush=True)
+    if args.recover_strong_attacks and verifier is None:
+        parser.error('--recover-strong-attacks requires a verifier checkpoint')
 
     # Name the input up front: the output files are named after the video, so a
     # stale --video with a fresh --output is otherwise silently confusing.
@@ -472,7 +504,7 @@ def main():
             # Use the next semitone so odd/even top pitches are both retained.
             maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12),
             verifier=verifier, device=device,
-            verifier_threshold=args.verifier_threshold)
+            verifier_threshold=args.verifier_threshold, recover_attacks=args.recover_strong_attacks)
         print(f'  {len(notes)} note events'
               f'{" (verifier)" if verifier else " (basic-pitch thresholds)"}', flush=True)
 
@@ -496,7 +528,7 @@ def main():
         for flipped in options:
             assignments, per_group = transcribe_notes(
                 records, notes, tuning, args.max_fret, args.inset, flipped, len(tuning),
-                audio_weight=args.audio_string_weight)
+                audio_weight=args.audio_string_weight, visual_priority=args.visual_priority)
             score = fingered_rate(per_group)
             order_scores['flipped' if flipped else 'normal'] = score
             print(f'  string order {"flipped" if flipped else "normal"}: '
@@ -535,6 +567,9 @@ def main():
                                     if args.audio_string_weight is not None
                                     else AUDIO_STRING_WEIGHT),
             'open_audio_neutral': fusion.OPEN_AUDIO_NEUTRAL,
+            'visual_priority': args.visual_priority,
+            'recover_strong_attacks': args.recover_strong_attacks,
+            'verifier_suppression': verify.SUPPRESSION_MODE if verifier else None,
             'tuning': list(tuning), 'max_fret': args.max_fret, 'string_inset': args.inset,
             'string_order': 'flipped' if args.flipped else 'normal',
             'string_order_selected': args.string_order,

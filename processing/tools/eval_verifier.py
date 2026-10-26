@@ -20,6 +20,7 @@ import numpy as np
 import torch
 
 from processing.music import verify
+from processing.music.pitch import DEFAULT_VERIFIER
 from processing.music.fusion import Sounded
 from processing.music.transcribe import transcribe_notes
 from processing.music.tuning import STANDARD_TUNING
@@ -52,10 +53,12 @@ def score_notes(notes, reference, audio_weight=None):
                for start, end, pitch, posterior in notes]
     assigned, _ = transcribe_notes([], sounded, STANDARD_TUNING, 22, .12, False,
                                    audio_weight=audio_weight)
-    # transcribe_notes groups by onset and returns its own order, so match the
-    # results back to the notes they came from rather than trusting positions.
-    placed = {(result.pitch, result.start): result for result in assigned.values()}
-    tab = [placed.get((note.pitch, note.start)) for note in sounded]
+    # transcribe_notes preserves stable onset order, including unisons. Pitch
+    # and onset are not unique identifiers: two strings can sound the same note.
+    tab = [None] * len(sounded)
+    for index, result in zip(sorted(range(len(sounded)), key=lambda i: sounded[i].start),
+                             assigned.values()):
+        tab[index] = result
     reference_intervals, reference_pitches = arrays(
         [(note.start, note.end, note.pitch) for note in reference])
     intervals, pitches = arrays([(s, e, p) for s, e, p, _ in notes])
@@ -86,7 +89,7 @@ def score_notes(notes, reference, audio_weight=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--model', type=Path, default=Path('runs/verifier/v1/best.pt'))
+    parser.add_argument('--model', type=Path, default=DEFAULT_VERIFIER)
     parser.add_argument('--candidates', type=Path,
                         default=Path('data/verifier/candidates.npz'))
     parser.add_argument('--split', choices=['val', 'test', 'train'], default='val')
@@ -97,10 +100,10 @@ def main():
                         help="Players making up the split, instead of the defaults: "
                              "e.g. --split test --players P3 --domain gt-exo for "
                              "Guitar-TECHS's held-out player on its room microphone")
-    parser.add_argument('--thresholds', default='0.80,0.85,0.90,0.93')
+    parser.add_argument('--thresholds', default=str(verify.SCORE_THRESHOLD))
     parser.add_argument('--audio-weight', type=float,
                         help='Override fusion.AUDIO_STRING_WEIGHT for this run')
-    parser.add_argument('--open-neutral', type=float, default=0.,
+    parser.add_argument('--open-neutral', type=float,
                         help='Set fusion.OPEN_AUDIO_NEUTRAL for this run')
     parser.add_argument('--cqt', type=Path, help='CQT cache the model was trained with')
     parser.add_argument('--no-refine', action='store_true',
@@ -111,7 +114,7 @@ def main():
 
     device = (torch.device(args.device) if args.device
               else torch.device('mps' if torch.backends.mps.is_available() else 'cpu'))
-    if args.open_neutral:
+    if args.open_neutral is not None:
         from processing.music import fusion
         fusion.OPEN_AUDIO_NEUTRAL = args.open_neutral
     candidates = verifier_data.load_candidates(args.candidates)

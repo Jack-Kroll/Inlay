@@ -53,6 +53,32 @@ class AudioMuxTests(unittest.TestCase):
 
 
 class TranscriptionCliTests(unittest.TestCase):
+    def test_recovery_requires_a_verifier_before_audio_inference(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            argv = ['transcribe', '--video', 'unused.mov', '--device', 'cpu',
+                    '--output', temporary, '--no-verifier', '--recover-strong-attacks']
+            with patch('sys.argv', argv), patch('sys.stderr'), \
+                    patch('processing.music.transcribe.notes_from_media') as audio, \
+                    self.assertRaises(SystemExit) as error:
+                main()
+        self.assertEqual(error.exception.code, 2)
+        audio.assert_not_called()
+
+    def test_nonfinite_verifier_threshold_is_reported_as_usage_error(self):
+        with patch('sys.argv', ['transcribe', '--video', 'unused.mov', '--verifier-threshold', 'nan']), \
+                patch('sys.stderr'), self.assertRaises(SystemExit) as error:
+            main()
+        self.assertEqual(error.exception.code, 2)
+
+    def test_invalid_fusion_weights_fail_before_model_inference(self):
+        for option in ('--audio-string-weight', '--open-audio-neutral'):
+            for value in ('-0.1', '1.1', 'nan', 'inf'):
+                with self.subTest(option=option, value=value), \
+                        patch('sys.argv', ['transcribe', '--video', 'unused.mov', option, value]), \
+                        patch('sys.stderr'), self.assertRaises(SystemExit) as error:
+                    main()
+                self.assertEqual(error.exception.code, 2)
+
     def test_minimal_command_uses_project_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

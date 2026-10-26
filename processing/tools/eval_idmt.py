@@ -35,7 +35,7 @@ def main():
     parser.add_argument('--threshold', type=float, default=verify.SCORE_THRESHOLD)
     parser.add_argument('--audio-weight', type=float,
                         help='Override fusion.AUDIO_STRING_WEIGHT for this run')
-    parser.add_argument('--open-neutral', type=float, default=0.,
+    parser.add_argument('--open-neutral', type=float,
                         help='Set fusion.OPEN_AUDIO_NEUTRAL for this run')
     parser.add_argument('--device')
     parser.add_argument('--output', type=Path)
@@ -43,7 +43,7 @@ def main():
 
     device = (torch.device(args.device) if args.device
               else torch.device('mps' if torch.backends.mps.is_available() else 'cpu'))
-    if args.open_neutral:
+    if args.open_neutral is not None:
         from processing.music import fusion
         fusion.OPEN_AUDIO_NEUTRAL = args.open_neutral
     model, channels, _ = verify.load(args.model, device)

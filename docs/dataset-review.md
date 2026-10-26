@@ -84,9 +84,22 @@ guitar, licence not stated where it is hosted), SynthTab (2 TB of synthesised
 audio, licence unverified), and GAPS (classical guitar, YouTube links rather
 than files).
 
-## What to collect next
+## Use existing labels first
 
-Target 3,000-5,000 reviewed frames across 30-50 guitars and multiple sessions.
+The [October 19 accuracy experiments](accuracy-experiments.md) downloaded
+Kaggle's 1,995 labelled finger-placement images and GuiFiR's 1,030 video clips.
+Kaggle's evaluated tablature subset remains locally. The unevaluated GuiFiR
+archive and Kaggle fretboard subset were removed locally on October 21 to
+recover disk space and can be downloaded again. The retained labels allow
+visual evaluation without asking a user to label their own videos.
+Kaggle's labels describe pressed fingers rather than sounding notes. GuiFiR
+needs coordinate/convention checks and a source-overlap audit before training.
+Keep their noncommercial dataset terms separate from Inlay's MIT source code.
+
+## Optional future collection
+
+If public data still leaves important gaps, target 3,000-5,000 reviewed frames
+across 30-50 guitars and multiple sessions.
 Include different instrument types, inlays, lighting, blur, phones, camera
 angles, capos, partial crops, real hand occlusions, and 10-20% reviewed
 negatives.

@@ -1,7 +1,7 @@
 """Diff two tab JSONL files: what changed between two transcriptions.
 
     uv run python -m processing.tools.compare_tab \
-      runs/transcribe/blackbird-baseline/Blackbird.tab.jsonl \
+      runs/archive/transcribe-2026-10-19/blackbird-baseline/Blackbird.tab.jsonl \
       runs/transcribe/blackbird/Blackbird.tab.jsonl
 
 Neither file is ground truth, so this does not say which is right. It says
