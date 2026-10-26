@@ -100,8 +100,38 @@ def _render(job):
     if posteriorgram.is_file() and spectrum.is_file():
         return job.name, 'cached'
 
-    import librosa, soundfile
+    import soundfile
     from basic_pitch.inference import run_inference
+    wave, semitones, description = render_wave(job)
+
+    with tempfile.TemporaryDirectory() as directory:
+        # Basic Pitch resolves its input with librosa.load(str(path)), so the
+        # augmented audio has to exist as a file for the length of the call.
+        path = Path(directory)/'augmented.wav'
+        soundfile.write(str(path), wave, augment.SAMPLE_RATE)
+        # The Core ML path prints tensor diagnostics straight to stdout.
+        with contextlib.redirect_stdout(io.StringIO()):
+            output = run_inference(str(path), _model())
+    posteriorgram.parent.mkdir(parents=True, exist_ok=True)
+    # The shift travels with the posteriorgram: it changes what the labels are,
+    # not just what the audio sounds like, and a second random draw elsewhere
+    # would silently disagree with this one.
+    np.savez_compressed(posteriorgram, shift=np.int8(semitones),
+                        **{key: output[key].astype(np.float16) for key in KEYS})
+    spectrum.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(spectrum,
+                        cqt=verify.spectrum(wave).astype(np.float16))
+    return job.name, description
+
+
+def render_wave(job):
+    """The audio one job describes, as (wave, semitones, description).
+
+    Deterministic per (domain, excerpt), so anything that needs a domain's
+    audio again -- a different front end, a training set for one -- gets the
+    same samples the cached posteriorgram and CQT were rendered from.
+    """
+    import librosa
     # Seeded by excerpt and domain, so a re-render reproduces this chain and
     # two domains of one excerpt never draw the same one.
     rng = np.random.default_rng(seed(job.domain, job.name))
@@ -130,26 +160,7 @@ def _render(job):
     if job.augmented:
         wave, note = augment.chain(wave, rng, strength=job.strength)
         done.append(note)
-    description = '; '.join(done)
-
-    with tempfile.TemporaryDirectory() as directory:
-        # Basic Pitch resolves its input with librosa.load(str(path)), so the
-        # augmented audio has to exist as a file for the length of the call.
-        path = Path(directory)/'augmented.wav'
-        soundfile.write(str(path), wave, augment.SAMPLE_RATE)
-        # The Core ML path prints tensor diagnostics straight to stdout.
-        with contextlib.redirect_stdout(io.StringIO()):
-            output = run_inference(str(path), _model())
-    posteriorgram.parent.mkdir(parents=True, exist_ok=True)
-    # The shift travels with the posteriorgram: it changes what the labels are,
-    # not just what the audio sounds like, and a second random draw elsewhere
-    # would silently disagree with this one.
-    np.savez_compressed(posteriorgram, shift=np.int8(semitones),
-                        **{key: output[key].astype(np.float16) for key in KEYS})
-    spectrum.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(spectrum,
-                        cqt=verify.spectrum(wave).astype(np.float16))
-    return job.name, description
+    return wave, semitones, '; '.join(done)
 
 
 def main():

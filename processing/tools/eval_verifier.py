@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from processing.music import verify
+from processing.music import frontend, verify
 from processing.music.pitch import DEFAULT_VERIFIER
 from processing.music.fusion import Sounded
 from processing.music.transcribe import transcribe_notes
@@ -108,6 +108,9 @@ def main():
     parser.add_argument('--cqt', type=Path, help='CQT cache the model was trained with')
     parser.add_argument('--no-refine', action='store_true',
                         help='Keep candidate frame times instead of the predicted onset')
+    parser.add_argument('--cache', type=Path,
+                        help="Posteriorgram cache; by default the one for the front end "
+                             "the verifier was trained on")
     parser.add_argument('--device')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
@@ -130,7 +133,8 @@ def main():
         raise SystemExit(f'{args.model} was trained with a CQT; pass --cqt')
     print(f'{args.model} on the {args.split} split ({len(members)} excerpts), '
           f'{args.domain} audio, {channels} channels')
-    patches = verifier_data.Patches(candidates['names'], cqt=cqt, only=members)
+    cache = args.cache or frontend.cache_dir(ROOT, verify.front_end(args.model))
+    patches = verifier_data.Patches(candidates['names'], cache=cache, cqt=cqt, only=members)
 
     rows_all = np.flatnonzero(np.isin(candidates['excerpt'], list(members)))
     scores = np.empty(len(rows_all), np.float32)
@@ -161,7 +165,7 @@ def main():
     for index in sorted(members):
         name = str(candidates['names'][index])
         excerpt = found[Path(name).name]
-        with np.load(CACHE/f'{name}.npz') as stored:
+        with np.load(cache/f'{name}.npz') as stored:
             note = stored['note'].astype(np.float32)
             onset = stored['onset'].astype(np.float32)
             times = model_frames_to_time(stored['contour'].shape[0])

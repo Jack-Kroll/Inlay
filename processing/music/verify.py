@@ -240,6 +240,19 @@ def load(checkpoint, device=None):
     return model, channels, (stored.get('cqt') or None)
 
 
+def front_end(checkpoint):
+    """The front end a verifier was trained on: a ``processing.music.frontend``
+    checkpoint path, or None for Basic Pitch's released model. Checkpoints from
+    before front ends could be swapped name none, and mean the released one.
+    A missing checkpoint names none too; ``load`` is what reports it."""
+    import torch
+    if not Path(checkpoint).is_file():
+        return None
+    stored = torch.load(Path(checkpoint), map_location='cpu', weights_only=False)
+    named = stored.get('front_end') or None
+    return Path(named) if named else None
+
+
 def suppress(frame, pitch, score, window):
     """Keep the best candidate per pitch within ``window`` frames of it."""
     kept, claimed = [], {}

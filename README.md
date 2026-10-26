@@ -16,9 +16,11 @@ uv sync --locked
 ```
 
 Local datasets, clips, runs, and model weights are gitignored. The commands
-below expect the trained checkpoints at `runs/dense/fretboard-v1/best.pt` and
-`runs/verifier/v8-gt/best.pt`. Without the verifier checkpoint, transcription
-falls back to Basic Pitch's thresholds and says so.
+below expect the trained checkpoints at `runs/dense/fretboard-v1/best.pt`,
+`runs/verifier/v11-ft1-egfx/best.pt` and the front end it was trained on,
+`runs/frontend/ft1/best.pt`. Without those it uses `runs/verifier/v8-gt/best.pt`
+on Basic Pitch's released model, and without any verifier, Basic Pitch's
+thresholds, and says so.
 
 ## Preview the fretboard
 
@@ -66,7 +68,8 @@ device are environment variables. See [the service](docs/service.md).
 
 1. `FretboardNet` predicts heatmaps for the neck, fret wires, and nut.
 2. The tracker stabilizes that geometry across short detection gaps.
-3. Spotify Basic Pitch produces a posteriorgram over pitch and time.
+3. Basic Pitch, fine-tuned on guitar (`processing/music/frontend.py`), produces
+   a posteriorgram over pitch and time.
 4. A learned note verifier reads that posteriorgram, plus a constant-Q
    transform of the audio, and decides which attacks are real notes, when they
    started, and which string played each one.
@@ -123,22 +126,30 @@ for details.
 ## Current results and limits
 
 Audio against annotated audio, no video, threshold .75, current defaults: the
-verifier trained on GuitarSet and Guitar-TECHS, the audio string term at .25,
-and audio not allowed to argue a note off an open string. "Previous" is the
-default before Guitar-TECHS: the acoustic-only verifier with the string term
-off. Current rows include the open-string rival correction and duplicate
-suppression after timing refinement. Previous rows are historical measurements
+verifier trained on GuitarSet, Guitar-TECHS and EGFxSet over the fine-tuned
+front end, the audio string term at .25, and audio not allowed to argue a note
+off an open string. "v8-gt" is the default before the front end was
+fine-tuned, re-measured with the same code; "previous" is the default before
+Guitar-TECHS, the acoustic-only verifier with the string term off, measured
 with the earlier decoder. These are previously inspected regression corpora;
-see [the confidence and missed-note experiments](docs/visual-confidence-and-missed-notes.md).
+see [the confidence and missed-note experiments](docs/visual-confidence-and-missed-notes.md)
+and [the fine-tuned front end](docs/front-end-finetune.md).
 
 | held out of training | | note F1 | string | tab F1 |
 |---|---|---:|---:|---:|
 | GuitarSet player 05, acoustic, 8,715 notes | previous | `.894` | `.664` | `.594` |
-| | current | `.902` | `.869` | `.784` |
+| | v8-gt | `.902` | `.869` | `.784` |
+| | current | `.902` | `.872` | `.786` |
 | Guitar-TECHS player P3, electric, amp mic | previous | `.703` | `.472` | `.332` |
-| | current | `.731` | `.612` | `.448` |
+| | v8-gt | `.731` | `.612` | `.448` |
+| | current | `.749` | `.612` | `.458` |
 | IDMT-SMT-GUITAR, four electrics, 5,164 notes | previous | `.820` | `.509` | `.418` |
-| | current | `.850` | `.585` | `.497` |
+| | v8-gt | `.850` | `.585` | `.497` |
+| | current | `.853` | `.597` | `.509` |
+
+Retraining the verifier alone moves string accuracy on P3 by up to 2.7 points,
+so of these differences the 1.8 points of note F1 on P3 is the one to trust;
+see [the write-up](docs/front-end-finetune.md#retraining-the-verifier).
 
 The Guitar-TECHS row is player P3; earlier room-microphone measurements gave
 `.518` to `.560` (5 ft in front) and `.488` to `.565` (head-mounted).
@@ -165,7 +176,8 @@ diagnostic of visual consistency, not independent reference accuracy. See
 
 More detail is available in [the note verifier](docs/note-verifier.md),
 [transcription](docs/transcription.md), [pitch tuning](docs/pitch-tuning.md),
-[tab logic](docs/tab-logic.md), and the
+[tab logic](docs/tab-logic.md), [the fine-tuned front end](docs/front-end-finetune.md),
+and the
 [dataset review](docs/dataset-review.md).
 
 ## Code layout
@@ -183,6 +195,7 @@ More detail is available in [the note verifier](docs/note-verifier.md),
 
 Inlay source code is available under the [MIT License](LICENSE). Local visual
 data and GuitarSet are CC BY 4.0 and require their own attribution.
-Guitar-TECHS is CC BY 4.0 and requires its own attribution.
+Guitar-TECHS is CC BY 4.0 and requires its own attribution, as does EGFxSet
+(Pedroza, Meza and Roman, CC BY 4.0).
 IDMT-SMT-GUITAR is CC BY-NC-ND 4.0 and is used only to measure generalisation:
 nothing is trained on it and nothing derived from it ships.

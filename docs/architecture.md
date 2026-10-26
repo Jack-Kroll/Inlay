@@ -13,7 +13,10 @@ Audio and vision are joined later using media timestamps.
 2. `decode_maps` converts those heatmaps into board geometry.
 3. `FretboardTracker` stabilizes valid geometry across short gaps using optical
    flow and a RANSAC homography.
-4. Basic Pitch produces a posteriorgram over pitch and time.
+4. Basic Pitch produces a posteriorgram over pitch and time: the released
+   Core ML model, or a fine-tuned copy of it (`processing/music/frontend.py`,
+   see [the front-end plan](front-end-finetune-plan.md)). A verifier checkpoint
+   names the front end it was trained on, and transcription uses that one.
 5. The note verifier reads that posteriorgram, plus a CQT of the audio, and
    decides which candidate attacks are real notes, when exactly they started,
    and which string played each one.

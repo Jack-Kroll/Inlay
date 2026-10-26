@@ -19,7 +19,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from processing.music import verify
+from processing.music import frontend, verify
+from processing.music.pitch import DEFAULT_VERIFIER
 from processing.tools import idmt
 from processing.tools.eval_verifier import COLUMNS, score_notes
 from processing.tools.tune_pitch import CURRENT, estimate
@@ -29,9 +30,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--root', type=Path, default=idmt.ROOT)
-    parser.add_argument('--cache', type=Path, default=idmt.POSTERIORGRAMS)
-    parser.add_argument('--model', type=Path,
-                        default=Path('runs/verifier/v8-gt/best.pt'))
+    parser.add_argument('--cache', type=Path,
+                        help='Posteriorgram cache; by default the one for the front end '
+                             'the verifier was trained on')
+    parser.add_argument('--model', type=Path, default=DEFAULT_VERIFIER)
     parser.add_argument('--threshold', type=float, default=verify.SCORE_THRESHOLD)
     parser.add_argument('--audio-weight', type=float,
                         help='Override fusion.AUDIO_STRING_WEIGHT for this run')
@@ -47,6 +49,8 @@ def main():
         from processing.music import fusion
         fusion.OPEN_AUDIO_NEUTRAL = args.open_neutral
     model, channels, _ = verify.load(args.model, device)
+    if args.cache is None:
+        args.cache = frontend.cache_dir(idmt.POSTERIORGRAMS.parent, verify.front_end(args.model))
     found, _ = idmt.recordings(args.root)
     print(f'{args.model} ({channels} channels) on {len(found)} IDMT recordings, '
           f'threshold {args.threshold}\n')

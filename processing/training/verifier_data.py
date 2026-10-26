@@ -28,7 +28,7 @@ import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 
 from processing.music import verify
-from processing.tools import guitarset, guitar_techs
+from processing.tools import egfxset, guitarset, guitar_techs
 
 ROOT = Path('data/guitarset')
 CACHE = ROOT/'posteriorgrams'
@@ -36,7 +36,8 @@ TOLERANCE = .05
 # GuitarSet players 00-03 and Guitar-TECHS players P1-P2 train. GuitarSet's
 # 04 validates and 05 is the test player; Guitar-TECHS's P3 is held out the
 # same way, on a different guitar, amp and room, and is measured by naming it.
-TRAIN_PLAYERS = ('00', '01', '02', '03', 'P1', 'P2')
+# EGFxSet's single notes are one guitar and train only.
+TRAIN_PLAYERS = ('00', '01', '02', '03', 'P1', 'P2', 'EGFX')
 VAL_PLAYERS = ('04',)
 TEST_PLAYERS = ('05',)
 # The microphone excerpts everything was measured on before domains existed.
@@ -84,7 +85,7 @@ def excerpts(root=ROOT):
     with ``P``.
     """
     found = {excerpt.name: excerpt for excerpt in guitarset.excerpts(root)[0]}
-    for excerpt in guitar_techs.excerpts():
+    for excerpt in guitar_techs.excerpts() + egfxset.excerpts():
         found[excerpt.name] = excerpt
     return found
 
@@ -235,13 +236,21 @@ def main():
                         help='Extra rendered domains to add, e.g. pickup aug-v1')
     parser.add_argument('--measure-domains', nargs='*', default=[],
                         help='Domains to add for held-out players too, to measure on')
+    parser.add_argument('--front-end', type=Path,
+                        help='Label the posteriorgrams this processing.music.frontend '
+                             'checkpoint rendered (processing.tools.frontend_caches); '
+                             'Basic Pitch by default')
+    parser.add_argument('--egfxset', action='store_true',
+                        help="Add EGFxSet's single-note excerpts as the egfx domain "
+                             '(processing.tools.egfxset)')
     parser.add_argument('--guitar-techs', nargs='*', metavar='CHAIN',
                         help='Guitar-TECHS chains to include, of those prepared: '
                              'di amp ego exo drive-v1 ... (default: every one '
                              'prepared; pass the flag alone to leave it out)')
     args = parser.parse_args()
 
-    cache = args.root/'posteriorgrams'
+    from processing.music import frontend
+    cache = frontend.cache_dir(args.root, args.front_end)
     found, _ = guitarset.excerpts(args.root)
     found = sorted(found, key=lambda excerpt: excerpt.name)
     # One row per (excerpt, variant). Candidates are peak-picked from each
@@ -269,6 +278,12 @@ def main():
         name = variant_name(domain, excerpt.name)
         if (cache/f'{name}.npz').is_file():
             rendered.append((excerpt, name))
+    # EGFxSet is one domain of single notes, in only when asked for.
+    if args.egfxset:
+        for excerpt in sorted(egfxset.excerpts(), key=lambda excerpt: excerpt.name):
+            name = variant_name(egfxset.DOMAIN, excerpt.name)
+            if (cache/f'{name}.npz').is_file():
+                rendered.append((excerpt, name))
     jobs = [(index, name, excerpt.annotation, cache)
             for index, (excerpt, name) in enumerate(rendered)]
     parts, references = [], 0

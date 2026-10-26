@@ -78,6 +78,19 @@ excerpts and renders each chain as its own domain; see
 [the note verifier](note-verifier.md) for what it was worth, and that module's
 docstring for why the two room-microphone chains carry only string labels.
 
+EGFxSet (Zenodo record 7044411, CC BY 4.0, 5.8 GB) is every note of one
+22-fret Stratocaster -- six strings, frets 0 to 22, 138 notes -- through each of
+five pickup positions, clean and through twelve hardware effects, five seconds
+a note, with string and fret in the file name. Inlay uses the clean set and the
+three distortion pedals (Blues Driver, Tube Screamer, RAT): 2,759 notes. They
+train the pitch front end, as single notes and mixed into chords
+(`processing.training.frontend_data`), and can train the verifier's string head
+as the `egfx` domain (`processing.tools.egfxset`). It is the one source here
+with open strings on an electric in quantity, and the only real hardware
+distortion. Delays, reverbs and modulation are not used. One file,
+`TubeScreamer/Bridge-Middle/1-23`, has no clean counterpart (every other set
+has a `1-17` there) and is skipped.
+
 Other candidates looked at and not used: GOAT (5.9 h of direct-input electric
 from many guitars, CC BY 4.0 but by request and research-only), EGDB (one
 guitar, licence not stated where it is hosted), SynthTab (2 TB of synthesised

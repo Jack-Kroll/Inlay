@@ -34,7 +34,8 @@ uv run python -m service.worker
 ```
 
 The worker needs the same checkpoints the CLI does (`runs/dense/fretboard-v1/best.pt`,
-`runs/verifier/v8-gt/best.pt`). Jobs, uploads and results go under `var/`.
+`runs/verifier/v11-ft1-egfx/best.pt` and its front end `runs/frontend/ft1/best.pt`,
+or `runs/verifier/v8-gt/best.pt`). Jobs, uploads and results go under `var/`.
 
 To reach it from a phone on the same Wi-Fi, bind to every interface and tell
 the API the address the phone uses, because local upload URLs are built from

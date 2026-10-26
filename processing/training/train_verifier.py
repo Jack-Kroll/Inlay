@@ -28,7 +28,7 @@ import numpy as np
 import torch
 import torch.nn.functional as functional
 
-from processing.music import verify
+from processing.music import frontend, verify
 from processing.tools import guitarset
 from processing.training import verifier_data
 
@@ -219,9 +219,24 @@ def main():
                         help='Which validation metric picks best.pt')
     parser.add_argument('--val-sample', type=int, default=80000,
                         help='Candidates to score each epoch; 0 uses all of them')
+    parser.add_argument('--front-end', type=Path,
+                        help='The processing.music.frontend checkpoint whose '
+                             'posteriorgrams to train on; Basic Pitch by default. '
+                             'Recorded in the checkpoint, so transcription uses it too')
+    parser.add_argument('--cache', type=Path,
+                        help='Posteriorgram cache; by default the one --front-end renders '
+                             'into (processing.tools.frontend_caches)')
     parser.add_argument('--device')
     parser.add_argument('--max-steps', type=int, help='Smoke test: stop each epoch early')
     args = parser.parse_args()
+    if args.cache is None:
+        args.cache = frontend.cache_dir(verifier_data.ROOT, args.front_end)
+    if args.planes and args.front_end and frontend.tag(args.front_end) not in args.planes.name:
+        # Planes are written once and then trusted; another front end's would
+        # load without complaint.
+        parser.error(f'--planes {args.planes} does not name front end '
+                     f'{frontend.tag(args.front_end)}; use e.g. '
+                     f'data/verifier/planes@{frontend.tag(args.front_end)}')
 
     device = pick_device(args.device)
     candidates = verifier_data.load_candidates(args.candidates)
@@ -246,8 +261,8 @@ def main():
     print('loading posteriorgrams into memory...', flush=True)
     # Only what this run reads: with augmented variants the full set is
     # several gigabytes, and the test split is not scored here.
-    patches = verifier_data.Patches(candidates['names'], progress=True, cqt=args.cqt,
-                                    only=train | val, planes=args.planes)
+    patches = verifier_data.Patches(candidates['names'], cache=args.cache, progress=True,
+                                    cqt=args.cqt, only=train | val, planes=args.planes)
 
     model = verify.build(args.width, patches.channels).to(device)
     print(f'verifier: {sum(p.numel() for p in model.parameters())/1e6:.2f}M parameters')
@@ -307,7 +322,8 @@ def main():
             best = metrics[args.select]
             torch.save({'model': model.state_dict(), 'width': args.width,
                         'channels': patches.channels, 'cqt': str(args.cqt or ''),
-                        'epoch': number, 'metrics': metrics, 'domains': domains},
+                        'epoch': number, 'metrics': metrics, 'domains': domains,
+                        'front_end': str(args.front_end or '')},
                        args.output/'best.pt')
     (args.output/'history.json').write_text(json.dumps(history, indent=2))
     print(f'\nbest val {args.select} {best:.4f}; wrote {args.output}/best.pt')

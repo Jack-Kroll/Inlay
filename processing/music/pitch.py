@@ -76,20 +76,33 @@ def extract_audio(media, destination, sample_rate=SAMPLE_RATE):
     return destination
 
 
-DEFAULT_VERIFIER = Path('runs/verifier/v8-gt/best.pt')
+# The verifier on the fine-tuned front end, with EGFxSet in its string head;
+# see docs/front-end-finetune.md. v8-gt, on Basic Pitch's released model, is
+# the fallback where that front end has not been trained.
+DEFAULT_VERIFIER = Path('runs/verifier/v11-ft1-egfx/best.pt')
+FALLBACK_VERIFIERS = (Path('runs/verifier/v8-gt/best.pt'),)
 
 
-def default_verifier(path=DEFAULT_VERIFIER):
+def default_verifier(path=None):
     """The shipped verifier checkpoint, or None when it was never trained.
 
     Model weights are not in the repository, so a fresh clone falls back to
-    Basic Pitch's thresholds rather than failing.
+    Basic Pitch's thresholds rather than failing. A verifier whose front end
+    is missing is passed over: it cannot run without the posteriorgram it was
+    trained on.
     """
-    path = Path(path)
-    return path if path.is_file() else None
+    from . import verify
+    choices = [Path(path)] if path is not None else [DEFAULT_VERIFIER, *FALLBACK_VERIFIERS]
+    for choice in choices:
+        if not choice.is_file():
+            continue
+        front_end = verify.front_end(choice)
+        if front_end is None or Path(front_end).is_file():
+            return choice
+    return None
 
 
-def raw_activations(audio, verbose=False):
+def raw_activations(audio, verbose=False, front_end=None, device=None):
     """The posteriorgram as the network produced it, with nothing masked out.
 
     ``detect_notes`` cannot supply this. Basic Pitch's ``predict`` applies the
@@ -99,6 +112,9 @@ def raw_activations(audio, verbose=False):
     zeros are input it has never seen -- on a test clip they cost two thirds of
     the notes. Reading the model's output directly keeps the limits where they
     belong: on which candidates the guitar could have played, applied below.
+
+    ``front_end`` is a checkpoint from ``processing.music.frontend`` -- a
+    fine-tuned Basic Pitch -- to use instead of the released Core ML model.
     """
     from basic_pitch.inference import Model, run_inference
     from basic_pitch.note_creation import model_frames_to_time
@@ -106,6 +122,13 @@ def raw_activations(audio, verbose=False):
     audio = Path(audio)
     if not audio.is_file():
         raise FileNotFoundError(audio)
+    if front_end is not None:
+        from . import frontend
+        heads = frontend.activations(audio, front_end, device)
+        return Posteriorgram(
+            note=heads['note'], onset=heads['onset'],
+            times=np.asarray(model_frames_to_time(heads['note'].shape[0]), dtype=np.float64),
+            contour=heads['contour'])
     level = logging.root.manager.disable
     sink = contextlib.redirect_stdout(io.StringIO()) if not verbose else contextlib.nullcontext()
     if not verbose:
@@ -262,7 +285,10 @@ def notes_from_media(media, audio=None, workdir=None, verifier=None, device=None
         return notes, activations, Path(audio)
     # The verifier replaces the thresholds, so the threshold decoder never runs.
     verbose = kwargs.get('verbose', False)
-    activations = raw_activations(audio, verbose)
+    # A verifier only knows the posteriorgram it was trained on, so the front
+    # end is whichever one its checkpoint names.
+    from . import verify
+    activations = raw_activations(audio, verbose, verify.front_end(verifier), device)
     maximum_pitch = _pitch_of(kwargs.get('maximum_frequency'))
     # Basic Pitch excludes the rounded upper-frequency bin. The verifier's
     # pitch bound is inclusive, so translate the convention at this boundary.
