@@ -163,7 +163,9 @@ diagnostic of visual consistency, not independent reference accuracy. See
 [tab logic](docs/tab-logic.md#the-default-and-the-one-thing-audio-may-not-decide).
 
 - Complete audio/video transcription accuracy has still not been measured.
-  Nothing in the table involves the camera.
+  Nothing in the table involves the camera. The tooling for it is in place:
+  record clips, check their labels, and score them with
+  `processing.tools.testset` (see [the test set](docs/testset.md)).
 - The string head has heard six acoustic and three electric guitars. Through a
   room it cannot tell an open string from a fretted one, which is why it is not
   allowed to decide that.
