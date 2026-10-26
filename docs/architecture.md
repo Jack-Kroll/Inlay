@@ -20,7 +20,10 @@ Audio and vision are joined later using media timestamps.
 6. MediaPipe detects fingertips.
 7. `processing/music` combines pitch, the audio string posterior, board
    geometry, and hand position to pick one `(string, fret)` per note.
-8. The CLI writes an annotated video and diagnostic JSONL.
+8. `transcribe_video` writes diagnostic JSONL, the `packages/music`
+   performance document and, optionally, an annotated video. The CLI and the
+   job service (`service/`, see [the service](service.md)) both call it with
+   an `Options` value; neither reimplements the pipeline.
 
 ## Key design choices
 

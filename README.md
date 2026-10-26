@@ -47,6 +47,20 @@ Results go to `runs/transcribe/blackbird/` by default:
 - `Blackbird.tab.jsonl`: structured note assignments and diagnostic evidence.
 
 Use `--model`, `--output`, or `--device` to override the defaults.
+The same files also include `Blackbird.performance.json`: the timed notes in
+the [`packages/music`](packages/music) format the app reads.
+
+## Run it as a service
+
+The pipeline also runs behind an HTTP job API, so a phone app can upload a
+recording and poll for its tab. Locally, API and worker run on this Mac:
+
+```sh
+uv run python -m service.api --worker
+```
+
+Moving to a server is configuration, not code: storage, the job store and the
+device are environment variables. See [the service](docs/service.md).
 
 ## How it works
 
@@ -163,6 +177,7 @@ More detail is available in [the note verifier](docs/note-verifier.md),
   evaluation.
 - `processing/tools`: GuitarSet, Guitar-TECHS and IDMT loaders and evaluation,
   CQT caching, and tuning utilities.
+- `service`: the job API, worker, storage and job store.
 - `packages/music`: timed-note JSON contract for a future editor.
 - `tests`: unit and integration tests.
 

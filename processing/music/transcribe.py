@@ -30,7 +30,8 @@ from . import fusion, verify
 from .fusion import (AUDIO_STRING_WEIGHT, assign_positions, finger_contacts,
                      hand_position, plan_positions, unexplained_contacts)
 from .hands import CONNECTIONS, HandTracker, fretting_hand
-from .pitch import default_verifier, notes_from_media
+from .options import Options
+from .pitch import notes_from_media
 from .tuning import STANDARD_TUNING, note_name, validate_tuning
 
 # Overlay colour (BGR) for each kind of evidence behind a note's placement.
@@ -313,7 +314,7 @@ def render(video, records, assignments, args, fps, transform_kwargs, output):
             # Notes sounding at this frame.
             active = [n for n in ordered if n.start <= record.timestamp < n.end]
             draw_tab_strip(display, active, ordered, record.timestamp, tuning=args.tuning)
-            _draw_hud(display, record, transform, active, contacts, args)
+            _draw_hud(display, record, transform, active, contacts, transform_kwargs)
             if writer is None:
                 writer = cv2.VideoWriter(str(output), cv2.VideoWriter.fourcc(*'mp4v'),
                                          fps, (display.shape[1], display.shape[0]))
@@ -340,14 +341,14 @@ def _mirror_contacts(contacts, width, mirror):
     return mirrored
 
 
-def _draw_hud(frame, record, transform, active, contacts, args):
+def _draw_hud(frame, record, transform, active, contacts, layout):
     """Status text in the top-left: tracker state, active notes, stray fingers."""
     numbering = record.observation.numbering if record.observation is not None else 'no board'
     board = 'none' if transform is None else f'{transform.anchors} anchors'
     draw_text(frame, f'{record.index:5d}  t={record.timestamp:6.2f}s  {record.state}  '
                      f'numbering: {numbering}  board: {board}', (12, 24), .5)
     draw_text(frame, f'inference {record.inference_ms:.0f} ms   strings: interpolated '
-                     f'(inset {args.inset:.2f}{", flipped" if args.flipped else ""})', (12, 44), .42,
+                     f'(inset {layout["inset"]:.2f}{", flipped" if layout["flipped"] else ""})', (12, 44), .42,
               (170, 170, 180))
     y = 70
     for note in active[:6]:
@@ -449,95 +450,143 @@ def main():
     parser.add_argument('--max-frames', type=int)
     parser.add_argument('--progress', action='store_true')
     args = parser.parse_args()
-    if args.output is None:
-        args.output = default_output_directory(args.video)
-    if not 0 < args.threshold < 1 or not 0 <= args.inset < .5 or args.max_fret < 1:
-        parser.error('Invalid threshold, inset or max-fret')
-    if args.hands < 1 or (args.max_frames is not None and args.max_frames < 1):
-        parser.error('Invalid hands or max-frames')
-    if args.verifier_threshold is not None and not 0 <= args.verifier_threshold <= 1:
-        parser.error('Verifier threshold must be between 0 and 1')
-    if ((args.audio_string_weight is not None
-                and not 0 <= args.audio_string_weight <= 1)
-            or (args.open_audio_neutral is not None
-                and not 0 <= args.open_audio_neutral <= 1)):
-        parser.error('Fusion weights must be between 0 and 1')
-    if (not np.isfinite(args.max_gap) or args.max_gap <= 0
-            or not 0 <= args.onset_threshold <= 1 or not 0 <= args.frame_threshold <= 1
-            or not np.isfinite(args.min_note_ms) or args.min_note_ms <= 0
-            or (args.imgsz is not None and (args.imgsz < 64 or args.imgsz % 32))):
-        parser.error('Invalid max-gap, pitch thresholds, min-note-ms or imgsz')
     try:
         tuning = (STANDARD_TUNING if args.tuning == 'standard'
                   else validate_tuning([int(v) for v in args.tuning.split(',')]))
     except ValueError as error:
         parser.error(str(error))
-    args.tuning = tuning
-    if args.open_audio_neutral is not None:
-        fusion.OPEN_AUDIO_NEUTRAL = args.open_audio_neutral
-    args.output.mkdir(parents=True, exist_ok=True)
-    from processing.training.train import select_device
-    device = select_device(args.device)
-    verifier = None
-    if args.use_verifier:
-        verifier = args.verifier if args.verifier else default_verifier()
-        if args.verifier and not args.verifier.is_file():
-            parser.error(f'No verifier checkpoint at {args.verifier}')
-        if verifier is None:
-            print('No verifier checkpoint found; using Basic Pitch thresholds. '
-                  'Train one with processing.training.train_verifier.', flush=True)
-    if args.recover_strong_attacks and verifier is None:
-        parser.error('--recover-strong-attacks requires a verifier checkpoint')
+    options = Options(
+        model=args.model, device=args.device, imgsz=args.imgsz, threshold=args.threshold,
+        max_gap=args.max_gap, max_fret=args.max_fret, inset=args.inset,
+        string_order=args.string_order, tuning=tuple(tuning), hands=args.hands,
+        hand_model=args.hand_model, verifier=args.verifier, use_verifier=args.use_verifier,
+        verifier_threshold=args.verifier_threshold,
+        audio_string_weight=args.audio_string_weight, visual_priority=args.visual_priority,
+        recover_strong_attacks=args.recover_strong_attacks,
+        open_audio_neutral=args.open_audio_neutral, onset_threshold=args.onset_threshold,
+        frame_threshold=args.frame_threshold, min_note_ms=args.min_note_ms,
+        mirror=args.mirror, show_strings=args.show_strings, write_video=args.write_video,
+        max_frames=args.max_frames, progress=args.progress)
+    problems = options.problems()
+    if problems:
+        parser.error(problems[0])
+    output = args.output if args.output is not None else default_output_directory(args.video)
+    transcribe_video(args.video, output, options, audio=args.audio)
 
+
+@dataclass
+class Transcription:
+    """What one run produced: the files it wrote and what is in them."""
+    jsonl: Path
+    performance: Path
+    overlay: Path | None
+    summary: dict
+    assignments: dict
+
+
+def performance(assignments, tuning):
+    """The run as a ``packages/music`` performance document, version 1.
+
+    That schema is the boundary the app reads; the JSONL beside it keeps the
+    diagnostics. A note with no string carries neither string nor fret, as the
+    schema requires the two together."""
+    notes = []
+    for note in sorted(assignments.values(), key=lambda n: (n.start, n.pitch)):
+        duration = round(note.end - note.start, 4)
+        if duration <= 0:
+            continue
+        entry = {'pitch': int(note.pitch), 'startSeconds': round(max(note.start, 0.), 4),
+                 'durationSeconds': duration,
+                 'confidence': round(min(max(float(note.confidence), 0.), 1.), 4)}
+        if note.string is not None and note.fret is not None:
+            entry.update(string=int(note.string), fret=int(note.fret))
+        notes.append(entry)
+    return {'version': 1, 'tuning': [int(p) for p in tuning], 'notes': notes}
+
+
+def transcribe_video(video, output, options=None, audio=None, log=None):
+    """Transcribe one recording into ``output``; the whole pipeline.
+
+    Writes ``<stem>.tab.jsonl`` (summary and per-note diagnostics),
+    ``<stem>.performance.json`` (the app's contract) and, unless
+    ``options.write_video`` is off, ``<stem>.overlay.mp4``."""
+    options = options or Options()
+    log = log or print
+    problems = options.problems()
+    if problems:
+        raise ValueError('; '.join(problems))
+    video, output = Path(video), Path(output)
+    tuning = tuple(options.tuning)
+    output.mkdir(parents=True, exist_ok=True)
+    from processing.training.train import select_device
+    device = select_device(options.device)
+    verifier = options.resolved_verifier()
+    if options.use_verifier and verifier is None:
+        log('No verifier checkpoint found; using Basic Pitch thresholds. '
+            'Train one with processing.training.train_verifier.', flush=True)
+    # The fusion stage reads this as a module setting. Set it for this run and
+    # put it back, so one job's option cannot leak into the next in a worker.
+    neutral = fusion.OPEN_AUDIO_NEUTRAL
+    if options.open_audio_neutral is not None:
+        fusion.OPEN_AUDIO_NEUTRAL = options.open_audio_neutral
+    try:
+        return _transcribe(video, output, options, audio, log, tuning, device, verifier)
+    finally:
+        fusion.OPEN_AUDIO_NEUTRAL = neutral
+
+
+def _transcribe(video, output, options, audio, log, tuning, device, verifier):
     # Name the input up front: the output files are named after the video, so a
     # stale --video with a fresh --output is otherwise silently confusing.
-    print(f'Transcribing {args.video} -> {args.output}/{args.video.stem}.*', flush=True)
-    print('Detecting pitch...', flush=True)
+    log(f'Transcribing {video} -> {output}/{video.stem}.*', flush=True)
+    log('Detecting pitch...', flush=True)
     with tempfile.TemporaryDirectory() as workdir:
         # --- Step 1: audio -> notes. Only listen for pitches this guitar can
         # play, from the lowest open string up to the highest string's top fret.
         notes, activations, audio_path = notes_from_media(
-            args.video, args.audio, workdir, onset_threshold=args.onset_threshold,
-            frame_threshold=args.frame_threshold, minimum_note_length=args.min_note_ms,
+            video, audio, workdir, onset_threshold=options.onset_threshold,
+            frame_threshold=options.frame_threshold, minimum_note_length=options.min_note_ms,
             minimum_frequency=440 * 2 ** ((min(tuning)-69)/12),
             # Basic Pitch rounds the cutoff to a MIDI bin and excludes that bin.
             # Use the next semitone so odd/even top pitches are both retained.
-            maximum_frequency=440 * 2 ** ((min(127, max(tuning)+args.max_fret)+1-69)/12),
+            maximum_frequency=440 * 2 ** ((min(127, max(tuning)+options.max_fret)+1-69)/12),
             verifier=verifier, device=device,
-            verifier_threshold=args.verifier_threshold, recover_attacks=args.recover_strong_attacks)
-        print(f'  {len(notes)} note events'
-              f'{" (verifier)" if verifier else " (basic-pitch thresholds)"}', flush=True)
+            verifier_threshold=options.verifier_threshold,
+            recover_attacks=options.recover_strong_attacks)
+        log(f'  {len(notes)} note events'
+            f'{" (verifier)" if verifier else " (basic-pitch thresholds)"}', flush=True)
 
         # --- Step 2: video -> fretboard geometry and fretting hand per frame.
-        print('Detecting fretboard and hands...', flush=True)
-        records, fps = analyse(args.video, args.model, device, args)
-        print(f'  {len(records)} frames at {fps:.2f} fps', flush=True)
+        log('Detecting fretboard and hands...', flush=True)
+        records, fps = analyse(video, options.model, device, options)
+        log(f'  {len(records)} frames at {fps:.2f} fps', flush=True)
         if not records:
-            raise RuntimeError(f'No video frames decoded from {args.video}')
+            raise RuntimeError(f'No video frames decoded from {video}')
         # Drop or trim notes that fall outside the decoded video.
         duration = records[-1].timestamp + 1/fps
         notes = [replace(note, end=min(note.end, duration)) for note in notes
                  if 0 <= note.start < duration and note.end > note.start]
 
-        # --- Step 3: notes + vision -> tab. With --string-order auto, transcribe
+        # --- Step 3: notes + vision -> tab. With string order auto, transcribe
         # both ways and keep the order more notes agree with a fingertip.
-        options = ([False, True] if args.string_order == 'auto'
-                   else [args.string_order == 'flipped'])
-        best, args.flipped = None, options[0]
+        choices = ([False, True] if options.string_order == 'auto'
+                   else [options.string_order == 'flipped'])
+        best, chosen = None, choices[0]
         order_scores = {}
-        for flipped in options:
+        for flipped in choices:
             assignments, per_group = transcribe_notes(
-                records, notes, tuning, args.max_fret, args.inset, flipped, len(tuning),
-                audio_weight=args.audio_string_weight, visual_priority=args.visual_priority)
+                records, notes, tuning, options.max_fret, options.inset, flipped, len(tuning),
+                audio_weight=options.audio_string_weight,
+                visual_priority=options.visual_priority)
             score = fingered_rate(per_group)
             order_scores['flipped' if flipped else 'normal'] = score
-            print(f'  string order {"flipped" if flipped else "normal"}: '
-                  f'{score:.0%} of fretted notes have fingertip support', flush=True)
+            log(f'  string order {"flipped" if flipped else "normal"}: '
+                f'{score:.0%} of fretted notes have fingertip support', flush=True)
             if best is None or score > best[0]:
-                best, args.flipped = (score, assignments, per_group), flipped
+                best, chosen = (score, assignments, per_group), flipped
         assert best is not None  # Every string-order mode evaluates at least one option.
         _, assignments, per_group = best
-        transform_kwargs = dict(strings=len(tuning), inset=args.inset, flipped=args.flipped)
+        transform_kwargs = dict(strings=len(tuning), inset=options.inset, flipped=chosen)
 
         # --- Step 4: diagnostics, then write the JSONL and overlay video.
         counts = {}
@@ -558,21 +607,21 @@ def main():
                                   'point': c.point.tolist()} for c in stray],
                 })
         summary = {
-            'video': str(args.video.resolve()), 'model': str(args.model.resolve()),
+            'video': str(video.resolve()), 'model': str(Path(options.model).resolve()),
             'frames': len(records), 'fps': fps, 'notes': len(assignments),
             'verifier': str(verifier) if verifier else None,
-            'verifier_threshold': (args.verifier_threshold if args.verifier_threshold
+            'verifier_threshold': (options.verifier_threshold if options.verifier_threshold
                                    is not None else verify.SCORE_THRESHOLD) if verifier else None,
-            'audio_string_weight': (args.audio_string_weight
-                                    if args.audio_string_weight is not None
+            'audio_string_weight': (options.audio_string_weight
+                                    if options.audio_string_weight is not None
                                     else AUDIO_STRING_WEIGHT),
             'open_audio_neutral': fusion.OPEN_AUDIO_NEUTRAL,
-            'visual_priority': args.visual_priority,
-            'recover_strong_attacks': args.recover_strong_attacks,
+            'visual_priority': options.visual_priority,
+            'recover_strong_attacks': options.recover_strong_attacks,
             'verifier_suppression': verify.SUPPRESSION_MODE if verifier else None,
-            'tuning': list(tuning), 'max_fret': args.max_fret, 'string_inset': args.inset,
-            'string_order': 'flipped' if args.flipped else 'normal',
-            'string_order_selected': args.string_order,
+            'tuning': list(tuning), 'max_fret': options.max_fret, 'string_inset': options.inset,
+            'string_order': 'flipped' if chosen else 'normal',
+            'string_order_selected': options.string_order,
             'string_order_scores': order_scores,
             'fingertip_support_rate': round(fingered_rate(per_group), 4),
             'support_counts': counts,
@@ -587,24 +636,28 @@ def main():
                 'End-to-end audio/video transcription accuracy is unmeasured; GuitarSet benchmarks cover audio pitch and blind string assignment separately.',
             ],
         }
-        jsonl = args.output/f'{args.video.stem}.tab.jsonl'
+        jsonl = output/f'{video.stem}.tab.jsonl'
         write_jsonl(jsonl, assignments, summary)
-        print(json.dumps({k: v for k, v in summary.items()
-                          if k not in ('limitations', 'unexplained_fingers')}, indent=2))
-        print(f'Notes: {jsonl}', flush=True)
+        document = output/f'{video.stem}.performance.json'
+        document.write_text(json.dumps(performance(assignments, tuning), indent=1))
+        log(json.dumps({k: v for k, v in summary.items()
+                        if k not in ('limitations', 'unexplained_fingers')}, indent=2))
+        log(f'Notes: {jsonl}', flush=True)
 
-        if args.write_video:
-            print('Rendering overlay...', flush=True)
-            silent = args.output/f'{args.video.stem}.overlay.silent.mp4'
-            render(args.video, records, assignments, args, fps, transform_kwargs, silent)
+        overlay = None
+        if options.write_video:
+            log('Rendering overlay...', flush=True)
+            silent = output/f'{video.stem}.overlay.silent.mp4'
+            render(video, records, assignments, options, fps, transform_kwargs, silent)
             # OpenCV writes video without sound; ffmpeg copies the audio back on.
-            final = args.output/f'{args.video.stem}.overlay.mp4'
-            if mux_audio(silent, audio_path, final):
+            overlay = output/f'{video.stem}.overlay.mp4'
+            if mux_audio(silent, audio_path, overlay):
                 silent.unlink(missing_ok=True)
             else:
-                silent.replace(final)
-                print('Audio mux failed; the overlay is silent.', flush=True)
-            print(f'Overlay: {final}', flush=True)
+                silent.replace(overlay)
+                log('Audio mux failed; the overlay is silent.', flush=True)
+            log(f'Overlay: {overlay}', flush=True)
+    return Transcription(jsonl, document, overlay, summary, assignments)
 
 
 if __name__ == '__main__':
